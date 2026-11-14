@@ -164,9 +164,13 @@ namespace Typizer
             {
                 TimeSpan remaining = Clock.Remaining(deadline);
                 if (remaining <= TimeSpan.Zero) throw new TypizerWaitTimeoutException(run, Clock.Since(started));
-                await Task.Delay(interval < remaining ? interval : remaining, cancellationToken).ConfigureAwait(false);
+                // A sleep that reaches the deadline is followed by exactly one last poll: a timer may fire
+                // a fraction of a millisecond early, and "time left" after it must not buy another poll.
+                bool last = interval >= remaining;
+                await Task.Delay(last ? remaining : interval, cancellationToken).ConfigureAwait(false);
                 interval = TimeSpan.FromTicks(Math.Min((long)(interval.Ticks * 1.5), MaxPollInterval.Ticks));
                 run = await GetPolledAsync(run.Id, requestOptions, deadline, cancellationToken).ConfigureAwait(false);
+                if (last && !run.IsTerminal) throw new TypizerWaitTimeoutException(run, Clock.Since(started));
             }
             return run;
         }
