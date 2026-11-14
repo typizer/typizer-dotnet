@@ -1,0 +1,62 @@
+# Tests on every push and pull request of the package's own public repository (the mirror
+# scripts/export-mirror.sh produces; inert inside the monorepo): .NET 8 against the net8.0 and the
+# netstandard2.0 builds on Linux and Windows, and .NET Framework 4.6.2 on Windows — all against the
+# conformance mock in tests/Fixtures/mock.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      TYPIZER_MOCK_URL: http://127.0.0.1:4010
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Start the conformance mock (Linux)
+        if: runner.os != 'Windows'
+        run: |
+          nohup node tests/Fixtures/mock/server.js > mock.log 2>&1 &
+          for _ in $(seq 1 50); do curl -fsS http://127.0.0.1:4010/_mock/health && break; sleep 0.2; done
+      - name: Start the conformance mock (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Start-Process node -ArgumentList 'tests/Fixtures/mock/server.js' -RedirectStandardOutput mock.log -RedirectStandardError mock.err.log
+          foreach ($i in 1..50) { try { Invoke-RestMethod http://127.0.0.1:4010/_mock/health | Out-Null; break } catch { Start-Sleep -Milliseconds 200 } }
+
+      - name: .NET 8, Typizer net8.0 build
+        run: dotnet test tests/Typizer.Tests -c Release
+      - name: .NET 8, Typizer netstandard2.0 build
+        run: dotnet test tests/Typizer.Tests -c Release -p:TypizerTarget=netstandard2.0
+      - name: .NET Framework 4.6.2, Typizer netstandard2.0 build
+        if: runner.os == 'Windows'
+        run: dotnet test tests/Typizer.Tests -c Release -p:TypizerNetFx=true
+
+      - name: Pack
+        if: runner.os != 'Windows'
+        run: dotnet pack Typizer.sln -c Release -o artifacts
+      - uses: actions/upload-artifact@v4
+        if: runner.os != 'Windows'
+        with:
+          name: packages
+          path: artifacts/

@@ -1,0 +1,41 @@
+<Project>
+  <!-- Shared by every project in this folder: the two NuGet packages and the tests. -->
+  <PropertyGroup>
+    <!-- One version for Typizer and Typizer.Extensions.DependencyInjection; TypizerClient.Version
+         must say the same (tests/Typizer.Tests/ReleaseTests.cs checks it). -->
+    <TypizerVersion>0.1.0</TypizerVersion>
+
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+
+    <Authors>Typizer</Authors>
+    <Company>Typizer</Company>
+    <Copyright>© 2026 Typizer</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://docs.typizer.ru/reference/sdks/</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/typizer/typizer-dotnet</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <!-- The test variants (scripts/test.sh) build into their own folders, so they never mix outputs;
+       no variant compiles another one's generated files. -->
+  <PropertyGroup>
+    <DefaultItemExcludes>$(DefaultItemExcludes);bin/**;obj/**</DefaultItemExcludes>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(TypizerTarget)' == 'netstandard2.0'">
+    <BaseIntermediateOutputPath>obj/ns20/</BaseIntermediateOutputPath>
+    <BaseOutputPath>bin/ns20/</BaseOutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(TypizerNetFx)' == 'true'">
+    <BaseIntermediateOutputPath>obj/netfx/</BaseIntermediateOutputPath>
+    <BaseOutputPath>bin/netfx/</BaseOutputPath>
+  </PropertyGroup>
+</Project>

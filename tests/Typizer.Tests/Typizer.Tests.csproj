@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The SDK's tests (xUnit). Three ways to run them (scripts/test.sh does all three):
+      dotnet test                                   net8.0 against the net8.0 build of the SDK
+      dotnet test -p:TypizerTarget=netstandard2.0   net8.0 against the netstandard2.0 build
+      -p:TypizerNetFx=true (build only) + mono      net462 (.NET Framework) against the netstandard2.0 build
+    Conformance tests need the mock (TYPIZER_MOCK_URL, default http://127.0.0.1:4010).
+  -->
+  <PropertyGroup>
+    <TargetFramework Condition="'$(TypizerNetFx)' != 'true'">net8.0</TargetFramework>
+    <TargetFramework Condition="'$(TypizerNetFx)' == 'true'">net462</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>Typizer.Tests</RootNamespace>
+    <!-- xUnit's analyzer prefers TestContext tokens; the tests pass their own on purpose. -->
+    <NoWarn>$(NoWarn);xUnit1030;xUnit1031;CS1591</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TypizerTarget)' == 'netstandard2.0' Or '$(TypizerNetFx)' == 'true'">
+    <DefineConstants>$(DefineConstants);TYPIZER_NETSTANDARD</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TypizerNetFx)' == 'true'">
+    <PackageReference Include="xunit.runner.console" Version="2.9.2" />
+  </ItemGroup>
+
+  <!-- README snippets are compiled with Roslyn against the SDK and ASP.NET Core (net8 only). -->
+  <ItemGroup Condition="'$(TypizerNetFx)' != 'true'">
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TypizerNetFx)' == 'true'">
+    <Compile Remove="ReadmeTests.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TypizerTarget)' == 'netstandard2.0' Or '$(TypizerNetFx)' == 'true'">
+    <ProjectReference Include="..\..\src\Typizer\Typizer.csproj" SetTargetFramework="TargetFramework=netstandard2.0" />
+    <ProjectReference Include="..\..\src\Typizer.Extensions.DependencyInjection\Typizer.Extensions.DependencyInjection.csproj" SetTargetFramework="TargetFramework=netstandard2.0" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TypizerTarget)' != 'netstandard2.0' And '$(TypizerNetFx)' != 'true'">
+    <ProjectReference Include="..\..\src\Typizer\Typizer.csproj" />
+    <ProjectReference Include="..\..\src\Typizer.Extensions.DependencyInjection\Typizer.Extensions.DependencyInjection.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

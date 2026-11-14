@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>
+    <RootNamespace>Typizer</RootNamespace>
+    <AssemblyName>Typizer</AssemblyName>
+    <Version>$(TypizerVersion)</Version>
+
+    <PackageId>Typizer</PackageId>
+    <Title>Typizer SDK для .NET</Title>
+    <Description>Официальный .NET SDK для Typizer API (api.typizer.ru): извлечение данных из документов — счетов, УПД, накладных, договоров, сканов и фото — в JSON по вашей схеме. Async, CancellationToken, повторы с Idempotency-Key, проверка подписи вебхуков. .NET 8+ и .NET Framework 4.6.2+ (netstandard2.0).</Description>
+    <PackageTags>typizer;sdk;api;document-extraction;document-parsing;ocr;invoice;json-schema;upd;1c;распознавание-документов;счета;УПД</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageReleaseNotes>https://github.com/typizer/typizer-dotnet/blob/main/CHANGELOG.md</PackageReleaseNotes>
+
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Model properties mirror the API reference one to one; the types and every method carry docs. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <!-- The only dependency, and only where the framework lacks it (.NET Framework / netstandard2.0). -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\icon.png" Pack="true" PackagePath="\" />
+    <InternalsVisibleTo Include="Typizer.Tests" />
+  </ItemGroup>
+
+</Project>
