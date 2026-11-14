@@ -37,20 +37,27 @@ jobs:
         run: |
           nohup node tests/Fixtures/mock/server.js > mock.log 2>&1 &
           for _ in $(seq 1 50); do curl -fsS http://127.0.0.1:4010/_mock/health && break; sleep 0.2; done
-      - name: Start the conformance mock (Windows)
+      # On Windows the runner ends every process a step started when that step finishes, so the
+      # mock is started in the same step as the tests it serves.
+      - name: .NET 8 (net8.0, netstandard2.0) and .NET Framework 4.6.2 against the mock (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Start-Process node -ArgumentList 'tests/Fixtures/mock/server.js' -RedirectStandardOutput mock.log -RedirectStandardError mock.err.log
+          $mock = Start-Process node -ArgumentList 'tests/Fixtures/mock/server.js' -RedirectStandardOutput mock.log -RedirectStandardError mock.err.log -PassThru
           foreach ($i in 1..50) { try { Invoke-RestMethod http://127.0.0.1:4010/_mock/health | Out-Null; break } catch { Start-Sleep -Milliseconds 200 } }
+          $failed = $false
+          dotnet test tests/Typizer.Tests -c Release; if ($LASTEXITCODE -ne 0) { $failed = $true }
+          dotnet test tests/Typizer.Tests -c Release -p:TypizerTarget=netstandard2.0; if ($LASTEXITCODE -ne 0) { $failed = $true }
+          dotnet test tests/Typizer.Tests -c Release -p:TypizerNetFx=true; if ($LASTEXITCODE -ne 0) { $failed = $true }
+          Stop-Process -Id $mock.Id -ErrorAction SilentlyContinue
+          if ($failed) { Get-Content mock.err.log -ErrorAction SilentlyContinue; exit 1 }
 
       - name: .NET 8, Typizer net8.0 build
+        if: runner.os != 'Windows'
         run: dotnet test tests/Typizer.Tests -c Release
       - name: .NET 8, Typizer netstandard2.0 build
+        if: runner.os != 'Windows'
         run: dotnet test tests/Typizer.Tests -c Release -p:TypizerTarget=netstandard2.0
-      - name: .NET Framework 4.6.2, Typizer netstandard2.0 build
-        if: runner.os == 'Windows'
-        run: dotnet test tests/Typizer.Tests -c Release -p:TypizerNetFx=true
 
       - name: Pack
         if: runner.os != 'Windows'

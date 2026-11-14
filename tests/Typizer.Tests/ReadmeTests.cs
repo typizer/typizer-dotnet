@@ -37,7 +37,7 @@ global using Microsoft.Extensions.Logging;
         public static IEnumerable<object[]> Snippets()
         {
             string readme = File.ReadAllText(Path.Combine(Repo.PackageDir, "README.md"));
-            MatchCollection blocks = Regex.Matches(readme, "```csharp\n(.*?)```", RegexOptions.Singleline);
+            MatchCollection blocks = Regex.Matches(readme, "```csharp\r?\n(.*?)```", RegexOptions.Singleline);
             Assert.True(blocks.Count >= 10, "README has fewer C# examples than expected");
             for (int i = 0; i < blocks.Count; i++)
             {
