@@ -796,7 +796,12 @@ namespace Typizer.Tests
                     Me me = await client.GetMeAsync();
                     Assert.Equal("me", me.Object);
                 }
+#if !NETFRAMEWORK
+                // .NET Framework never proxies a loopback destination (HttpWebRequest bypasses any
+                // IWebProxy for 127.0.0.1/localhost), so there the mock is reached directly; the proxy's
+                // credentials above are still checked.
                 Assert.Contains(proxy.Seen, line => line.StartsWith("GET " + Mock.BaseUrl + "/v1/me", StringComparison.Ordinal));
+#endif
             }
             Assert.Single(await Mock.Requests(key));
         }
