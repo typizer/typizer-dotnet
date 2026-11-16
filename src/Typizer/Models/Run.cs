@@ -149,7 +149,7 @@ namespace Typizer
     public sealed class FieldResult
     {
         public FieldStatus Status { get; set; }
-        /// <summary>Только при <c>warn</c>: <c>checksum_mismatch</c>, <c>invalid_format</c>, <c>sum_mismatch</c>, <c>implausible_date</c>, <c>no_source</c> и другие.</summary>
+        /// <summary>Только при <c>warn</c>: <c>checksum_mismatch</c>, <c>invalid_format</c>, <c>sum_mismatch</c>, <c>implausible_date</c>, <c>no_source</c>, <c>code_mismatch</c> (значение расходится со штрихкодом или QR-кодом на документе) и другие.</summary>
         public string? Reason { get; set; }
         public IReadOnlyList<FieldSource> Sources { get; set; } = Array.Empty<FieldSource>();
         [JsonExtensionData]

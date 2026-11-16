@@ -3,7 +3,7 @@
   <PropertyGroup>
     <!-- One version for Typizer and Typizer.Extensions.DependencyInjection; TypizerClient.Version
          must say the same (tests/Typizer.Tests/ReleaseTests.cs checks it). -->
-    <TypizerVersion>0.1.0</TypizerVersion>
+    <TypizerVersion>0.2.0</TypizerVersion>
 
     <LangVersion>12.0</LangVersion>
     <Nullable>enable</Nullable>

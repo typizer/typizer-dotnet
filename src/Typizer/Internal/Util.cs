@@ -59,7 +59,7 @@ namespace Typizer.Internal
     {
         private static string? _platform;
 
-        /// <summary><c>typizer-dotnet/0.1.0 (dotnet/8.0.6; linux/arm64)[ app/1.0]</c> — SPEC §2.3.</summary>
+        /// <summary><c>typizer-dotnet/0.2.0 (dotnet/8.0.6; linux/arm64)[ app/1.0]</c> — SPEC §2.3.</summary>
         public static string Build(AppInfo? app)
         {
             var sb = new StringBuilder("typizer-dotnet/").Append(TypizerClient.Version);
