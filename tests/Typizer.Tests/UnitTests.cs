@@ -337,6 +337,70 @@ namespace Typizer.Tests
             Assert.Throws<ArgumentException>(() => TypizerFile.FromUrl(new Uri("/relative", UriKind.Relative)));
         }
 
+        [Fact(DisplayName = "Validator models keep unknown fields and enum values; spec stays free JSON (SPEC §5.4)")]
+        public void ValidatorModelsAreForwardCompatible()
+        {
+            ValidatorUpdateResult update = Json.Deserialize<ValidatorUpdateResult>(Encoding.UTF8.GetBytes(
+                "{\"object\":\"validator_update\",\"bump\":\"epoch\",\"reasons\":[],\"propagated_to\":[{\"typizer_id\":\"tz_1\",\"version\":3,\"auto\":true}],"
+                + "\"suggested_to\":[],\"audit_id\":\"a_1\",\"validator\":{\"id\":\"val_1\",\"object\":\"validator\",\"ref\":\"my/x\",\"slug\":\"x\","
+                + "\"name\":\"X\",\"description\":null,\"versions_count\":1,\"catalog\":null,\"forked_from\":null,\"owner\":\"org_1\","
+                + "\"created_at\":\"2026-11-15T10:00:00Z\",\"updated_at\":\"2026-11-15T10:00:00Z\",\"version\":{\"id\":\"valv_1\","
+                + "\"object\":\"validator_version\",\"version\":\"1.0.0\",\"spec\":{\"kind\":\"ml\",\"model\":\"m-2\",\"rules\":[{\"type\":\"vibes\"}]},"
+                + "\"tests\":[{\"value\":42,\"expect\":\"maybe\",\"weight\":2}],\"explain\":\"\",\"rule_preview\":[],\"changelog\":\"\","
+                + "\"created_at\":\"2026-11-15T10:00:00Z\"}}}"));
+            Assert.Equal("epoch", update.Bump.Value);
+            Assert.NotEqual(ValidatorBump.Major, update.Bump);
+            Assert.Equal("a_1", update.ExtensionData!["audit_id"].GetString());
+            Assert.True(update.PropagatedTo[0].ExtensionData!["auto"].GetBoolean());
+            Assert.Equal("org_1", update.Validator.ExtensionData!["owner"].GetString());
+            ValidatorVersion version = update.Validator.Version;
+            Assert.Equal("ml", version.Spec.GetProperty("kind").GetString());
+            Assert.Equal("vibes", version.Spec.GetProperty("rules")[0].GetProperty("type").GetString());
+            ValidatorTest test = Assert.Single(version.Tests);
+            Assert.Equal(42, test.Value.GetInt32());
+            Assert.Equal("maybe", test.Expect.Value);
+            Assert.Equal(2, test.ExtensionData!["weight"].GetInt32());
+
+            ValidatorDetail detail = Json.Deserialize<ValidatorDetail>(Encoding.UTF8.GetBytes(
+                "{\"id\":\"val_1\",\"ref\":\"my/x\",\"versions\":[],\"used_by\":[{\"typizer_id\":\"tz_1\",\"name\":\"T\",\"version\":1,\"ref\":\"my/x@1\","
+                + "\"locked_version\":\"1.0.0\",\"update_available\":\"1.1.0\",\"pinned\":true}],\"trend\":\"up\"}"));
+            Assert.Equal("up", detail.ExtensionData!["trend"].GetString());
+            Assert.Equal("1.1.0", detail.UsedBy[0].UpdateAvailable);
+            Assert.True(detail.UsedBy[0].ExtensionData!["pinned"].GetBoolean());
+
+            ValidatorSuggestion suggestion = Json.Deserialize<ValidatorSuggestion>(Encoding.UTF8.GetBytes(
+                "{\"name\":\"N\",\"spec\":{\"kind\":\"rules\"},\"tests\":[{\"value\":\"a\",\"expect\":\"pass\",\"got\":\"unsure\"}],\"converged\":false,"
+                + "\"explain\":\"\",\"rule_preview\":[],\"iterations\":2,\"source\":\"crowd\",\"candidates_from_catalog\":[{\"ref\":\"inn@1\",\"name\":\"ИНН\","
+                + "\"kind\":\"partner\",\"explain\":\"\",\"examples\":{\"correct\":2,\"total\":3},\"score\":0.9}],\"cost\":1}"));
+            Assert.Equal("unsure", suggestion.Tests[0].Got.Value);
+            Assert.Equal("crowd", suggestion.Source);
+            Assert.Equal("partner", suggestion.CandidatesFromCatalog[0].Kind);
+            Assert.Equal(2, suggestion.CandidatesFromCatalog[0].Examples!.Correct);
+            Assert.Equal(0.9, suggestion.CandidatesFromCatalog[0].ExtensionData!["score"].GetDouble());
+
+            SavedTypizer typizer = Json.Deserialize<SavedTypizer>(Encoding.UTF8.GetBytes("{\"id\":\"tz_1\",\"name\":\"T\"}"));
+            Assert.Empty(typizer.Checks); // a response from before the field
+        }
+
+        [Fact(DisplayName = "ValidatorTest factories and check values: strings and numbers only, written as JSON strings and numbers")]
+        public void ValidatorTestValues()
+        {
+            Assert.Equal(JsonValueKind.String, ValidatorTest.Pass("ДГ-2026/0153").Value.ValueKind);
+            Assert.Equal(ValidatorOutcome.Fail, ValidatorTest.Fail("x", "note").Expect);
+            Assert.Equal(12.5m, new ValidatorTest(12.5m, "pass").Value.GetDecimal());
+            byte[] body = Json.WriteObject(w =>
+            {
+                w.WritePropertyName("v");
+                w.WriteStartArray();
+                foreach (object o in new object[] { "a", 1, 2L, 3.5m, 4.25, JsonDocument.Parse("7").RootElement }) Json.WriteCheckValue(w, o, "v");
+                w.WriteEndArray();
+            });
+            Assert.Equal("{\"v\":[\"a\",1,2,3.5,4.25,7]}", Encoding.UTF8.GetString(body));
+            Assert.Throws<ArgumentException>(() => Json.WriteObject(w => Json.WriteCheckValue(w, double.NaN, "v")));
+            Assert.Throws<ArgumentException>(() => Json.WriteObject(w => Json.WriteCheckValue(w, null, "v")));
+            Assert.Throws<ArgumentException>(() => Json.WriteObject(w => Json.WriteCheckValue(w, new { a = 1 }, "v")));
+        }
+
         private static IReadOnlyDictionary<string, IReadOnlyList<string>> Headers(params (string Name, string Value)[] headers) =>
             headers.ToDictionary(h => h.Name, h => (IReadOnlyList<string>)new[] { h.Value }, StringComparer.OrdinalIgnoreCase);
 

@@ -415,6 +415,315 @@ namespace Typizer.Tests
             }
         }
 
+        // ---- field checks (validators) ---------------------------------------------------------
+
+        [Fact(DisplayName = "Validator catalog: List/Get send type=validator, the version carries the published tests, Fork makes my/<slug>")]
+        public async Task ValidatorCatalog()
+        {
+            using (TypizerClient client = Mock.Client(Mock.Key("ok")))
+            {
+                CatalogEntryBrief first = (await client.Catalog.Validators.ListAsync().GetPageAsync()).Data[0];
+                Assert.Equal(CatalogEntryType.Validator, first.Type);
+                Assert.Equal("inn@1", first.Validator!.Ref);
+                CatalogEntry inn = await client.Catalog.Validators.GetAsync("inn@1");
+                Assert.Equal(5, inn.Version.Validator!.Tests.Count);
+                Assert.Equal("acme/contract-no", (await client.Catalog.Validators.GetAsync("acme/contract-no")).Ref);
+                Validator mine = await client.Catalog.Validators.ForkAsync("inn", new CatalogForkValidatorOptions { Slug = "my-inn", Name = "Мой ИНН" });
+                Assert.Equal("my/my-inn", mine.Ref);
+                Assert.Equal("inn@1", mine.ForkedFrom!.Ref);
+                // The schema catalog is unchanged.
+                Assert.Equal(CatalogEntryType.Schema, (await client.Catalog.ListAsync().GetPageAsync()).Data[0].Type);
+            }
+        }
+
+
+        [Fact(DisplayName = "SC-36 checks: own and inline checks warn with reason, message and checks; Warnings(); ChecksUsed; the inline spec goes as is")]
+        public async Task SC36_FieldChecks()
+        {
+            string key = Mock.Key("checks");
+            using (TypizerClient client = Mock.Client(key))
+            {
+                Run run = await client.ExtractAsync(new Uri(Schemas.SampleUrl), Schemas.Checked);
+                Assert.Equal(RunStatus.Succeeded, run.Status);
+
+                FieldResult contract = run.Fields!["contract_no"];
+                Assert.Equal(FieldStatus.Warn, contract.Status);
+                Assert.Equal("pattern_mismatch", contract.Reason);
+                Assert.Equal("Номер договора не по шаблону ДГ-ГГГГ/NNNN", contract.Message);
+                FieldCheck own = Assert.Single(contract.Checks);
+                Assert.Equal("my/contract-no", own.Ref);
+                Assert.Equal("1.0.0", own.Version);
+                Assert.Equal("Номер договора", own.Name);
+                Assert.Equal(FieldCheckStatus.Fail, own.Status);
+                Assert.Equal("pattern", own.Rule);
+                Assert.Equal("pattern_mismatch", own.Reason);
+
+                FieldResult spec = run.Fields["spec_no"];
+                Assert.Equal(FieldStatus.Warn, spec.Status);
+                Assert.Equal("invalid_format", spec.Reason);
+                FieldCheck inline = Assert.Single(spec.Checks);
+                Assert.Equal("inline", inline.Ref);
+                Assert.Null(inline.Version);
+                Assert.Null(inline.Name);
+                Assert.Equal(FieldCheckStatus.Fail, inline.Status);
+                Assert.Equal("length", inline.Rule);
+
+                FieldResult inn = run.Fields["seller.inn"];
+                Assert.Equal(FieldStatus.Ok, inn.Status);
+                Assert.Null(inn.Message);
+                FieldCheck official = Assert.Single(inn.Checks);
+                Assert.Equal("inn", official.Ref);
+                Assert.Equal(FieldCheckStatus.Pass, official.Status);
+
+                IReadOnlyList<FieldWarning> warnings = run.Warnings();
+                Assert.Equal(new[] { "contract_no", "spec_no" }, warnings.Select(w => w.Path).ToArray());
+                Assert.Equal("Номер договора не по шаблону ДГ-ГГГГ/NNNN", warnings[0].Message);
+                Assert.Equal("pattern_mismatch", warnings[0].Reason);
+                Assert.Equal("Номер спецификации — от 5 до 12 знаков", warnings[1].Message);
+                Assert.Equal("invalid_format", warnings[1].Reason);
+                Assert.DoesNotContain("ДГ", warnings[0].ToString());
+
+                Assert.Equal(2, run.ChecksUsed!.Count);
+                RunCheckUsed byRef = run.ChecksUsed[0];
+                Assert.Equal("my/contract-no", byRef.Ref);
+                Assert.Equal("1.0.0", byRef.Version);
+                Assert.Equal("Номер договора", byRef.Name);
+                Assert.Null(byRef.Field);
+                RunCheckUsed inlineUsed = run.ChecksUsed[1];
+                Assert.Equal("inline", inlineUsed.Ref);
+                Assert.Null(inlineUsed.Version);
+                Assert.Null(inlineUsed.Name);
+                Assert.Equal("spec_no", inlineUsed.Field);
+            }
+            // The inline check went in the schema exactly as written, and nothing called /v1/validators.
+            JsonElement sent = Assert.Single(await Mock.Requests(key, "extract"));
+            JsonElement sentCheck = sent.GetProperty("body").GetProperty("value").GetProperty("schema")
+                .GetProperty("properties").GetProperty("spec_no").GetProperty("x-typizer-check");
+            using (JsonDocument expected = JsonDocument.Parse(Schemas.Checked))
+            {
+                JsonElement written = expected.RootElement.GetProperty("properties").GetProperty("spec_no").GetProperty("x-typizer-check");
+                Assert.True(JsonDeepEquals(written, sentCheck), sentCheck.GetRawText());
+            }
+            Assert.DoesNotContain(await Mock.Requests(key), e => Mock.Str(e, "path").StartsWith("/v1/validators", StringComparison.Ordinal));
+        }
+
+        [Fact(DisplayName = "SC-36 A run without message/checks/checks_used parses; Warnings() gives a null message; new check statuses survive")]
+        public void SC36_OldAndNewerPayloads()
+        {
+            Run old = Internal.Json.Deserialize<Run>(Encoding.UTF8.GetBytes(
+                "{\"id\":\"run_1\",\"status\":\"succeeded\",\"fields\":{\"a\":{\"status\":\"warn\",\"reason\":\"checksum_mismatch\",\"sources\":[]},"
+                + "\"b\":{\"status\":\"missing\",\"sources\":[]},\"c\":{\"status\":\"ok\",\"sources\":[]}}}"));
+            Assert.Null(old.ChecksUsed);
+            Assert.Empty(old.Fields!["a"].Checks);
+            FieldWarning warning = Assert.Single(old.Warnings());
+            Assert.Equal("a", warning.Path);
+            Assert.Null(warning.Message);
+            Assert.Equal("checksum_mismatch", warning.Reason);
+            Assert.Empty(Internal.Json.Deserialize<Run>(Encoding.UTF8.GetBytes("{\"id\":\"run_2\",\"status\":\"queued\"}")).Warnings());
+
+            Run newer = Internal.Json.Deserialize<Run>(Encoding.UTF8.GetBytes(
+                "{\"id\":\"run_3\",\"checks_used\":[{\"ref\":\"vin\",\"version\":\"2.0.0\",\"name\":\"VIN\",\"origin\":\"catalog\"}],"
+                + "\"fields\":{\"vin\":{\"status\":\"warn\",\"reason\":\"brand_new\",\"message\":\"Новое\",\"sources\":[],"
+                + "\"checks\":[{\"ref\":\"vin\",\"status\":\"deferred\",\"weight\":1}]}}}"));
+            Assert.Equal("catalog", newer.ChecksUsed![0].ExtensionData!["origin"].GetString());
+            FieldCheck check = Assert.Single(newer.Fields!["vin"].Checks);
+            Assert.Equal("deferred", check.Status.Value);
+            Assert.NotEqual(FieldCheckStatus.Pass, check.Status);
+            Assert.Equal(1, check.ExtensionData!["weight"].GetInt32());
+            Assert.Equal("brand_new", Assert.Single(newer.Warnings()).Reason);
+        }
+
+        [Fact(DisplayName = "SC-37 Validators: list, get by my/slug and by id, create, update (minor), red test, taken slug, archive with and without users")]
+        public async Task SC37_Validators()
+        {
+            string key = Mock.Key("ok");
+            using (TypizerClient client = Mock.Client(key))
+            {
+                var all = new List<Validator>();
+                await foreach (Validator v in client.Validators.ListAsync()) all.Add(v);
+                Validator seeded = Assert.Single(all, v => v.Ref == "my/contract-no");
+                Assert.Equal("contract-no", seeded.Slug);
+                Assert.Equal("1.0.0", seeded.Version.Version);
+
+                ValidatorDetail bySlug = await client.Validators.GetAsync("my/contract-no");
+                ValidatorDetail byVersionedRef = await client.Validators.GetAsync("my/contract-no@1");
+                ValidatorDetail byId = await client.Validators.GetAsync(seeded.Id);
+                Assert.Equal(seeded.Id, bySlug.Id);
+                Assert.Equal(seeded.Id, byVersionedRef.Id);
+                Assert.Equal("Номер договора", byId.Name);
+                ValidatorVersion first = Assert.Single(byId.Versions);
+                Assert.Equal("rules", first.Spec.GetProperty("kind").GetString());
+                Assert.Equal(3, first.Tests.Count);
+                Assert.Equal(ValidatorOutcome.Pass, first.Tests[0].Expect);
+                Assert.Equal("ДГ-2026/0153", first.Tests[0].Value.GetString());
+                Assert.Equal("регистр не важен", first.Tests[1].Note);
+                Assert.False(string.IsNullOrEmpty(first.Explain));
+                Assert.Empty(bySlug.UsedBy);
+                Assert.Single(await client.Validators.VersionsAsync("my/contract-no"));
+
+                // create: the spec as a dictionary, sent as is
+                var spec = new Dictionary<string, object>
+                {
+                    ["kind"] = "rules",
+                    ["applies_to"] = "string",
+                    ["rules"] = new object[] { new Dictionary<string, object> { ["type"] = "pattern", ["pattern"] = @"СП-\d{4}" } },
+                    ["message"] = "Номер спецификации не по шаблону СП-NNNN",
+                };
+                Validator created = await client.Validators.CreateAsync("Номер спецификации", spec,
+                    new[] { ValidatorTest.Pass("СП-0001"), ValidatorTest.Fail("СП-1") });
+                Assert.StartsWith("val_", created.Id);
+                Assert.StartsWith("my/", created.Ref);
+                Assert.Equal("1.0.0", created.Version.Version);
+                Assert.Equal(@"СП-\d{4}", created.Version.Spec.GetProperty("rules")[0].GetProperty("pattern").GetString());
+
+                // update: one more test → minor
+                ValidatorUpdateResult update = await client.Validators.UpdateAsync(created.Id, new ValidatorUpdateOptions
+                {
+                    Tests = new[] { ValidatorTest.Pass("СП-0001"), ValidatorTest.Fail("СП-1"), ValidatorTest.Fail("ДГ-0001", "чужой префикс") },
+                });
+                Assert.Equal(ValidatorBump.Minor, update.Bump);
+                Assert.Equal("1.1.0", update.Validator.Version.Version);
+                Assert.NotEmpty(update.Reasons);
+                Assert.Empty(update.PropagatedTo);
+                Assert.Equal(new[] { "1.1.0", "1.0.0" }, (await client.Validators.VersionsAsync(created.Id)).Select(v => v.Version).ToArray());
+
+                // a red test
+                var red = await Assert.ThrowsAsync<TypizerBadRequestException>(() =>
+                    client.Validators.CreateAsync("Красный", spec, new[] { ValidatorTest.Pass("нет") }));
+                Assert.Equal("tests/0", red.Param);
+
+                // a taken slug
+                var taken = await Assert.ThrowsAsync<TypizerConflictException>(() =>
+                    client.Validators.CreateAsync(new ValidatorCreateOptions { Name = "Дубль", Slug = "contract-no", Spec = spec }));
+                Assert.Equal(409, taken.StatusCode);
+
+                // archive: used by a typizer → 409 used_by; otherwise archived
+                SavedTypizer typizer = await client.Typizers.CreateAsync("Договоры", Schemas.Checked);
+                TypizerCheck locked = Assert.Single(typizer.Checks);
+                Assert.Equal("my/contract-no", locked.Ref);
+                Assert.Equal("1.0.0", locked.Version);
+                Assert.Equal("Номер договора", locked.Name);
+                ValidatorUsedBy user = Assert.Single((await client.Validators.GetAsync(seeded.Id)).UsedBy);
+                Assert.Equal(typizer.Id, user.TypizerId);
+                Assert.Equal("my/contract-no@1", user.Ref);
+                var used = await Assert.ThrowsAsync<TypizerConflictException>(() => client.Validators.ArchiveAsync(seeded.Id));
+                Assert.Equal("used_by", used.Param);
+                DeletedObject archived = await client.Validators.ArchiveAsync(created.Id);
+                Assert.True(archived.Deleted);
+                Assert.Equal(created.Id, archived.Id);
+                await Assert.ThrowsAsync<TypizerNotFoundException>(() => client.Validators.GetAsync(created.Id));
+            }
+            List<JsonElement> log = await Mock.Requests(key);
+            Assert.Equal(new[] { "/v1/validators/my/contract-no", "/v1/validators/my/contract-no", "/v1/validators/my/contract-no" },
+                log.Where(e => Mock.Str(e, "operation_id") == "getValidatorBySlug").Select(e => Mock.Str(e, "path")).ToArray());
+            Assert.Contains(log, e => Mock.Str(e, "operation_id") == "getValidator");
+            JsonElement create = log.First(e => Mock.Str(e, "operation_id") == "createValidator");
+            Assert.False(string.IsNullOrEmpty(Mock.Header(create, "idempotency-key")));
+            Assert.Equal("rules", create.GetProperty("body").GetProperty("value").GetProperty("spec").GetProperty("kind").GetString());
+            Assert.Equal("DELETE", Mock.Str(log.Last(e => Mock.Str(e, "operation_id") == "deleteValidator"), "method"));
+        }
+
+        [Fact(DisplayName = "SC-38 Validators.TestAsync by ref and by spec: pass, reason, message, rule_index; ref+spec or neither fails before the network; unknown ref is 400 ref")]
+        public async Task SC38_ValidatorTest()
+        {
+            string key = Mock.Key("ok");
+            using (TypizerClient client = Mock.Client(key))
+            {
+                ValidatorTestResult byRef = await client.Validators.TestAsync(new[] { "ДГ-2026/0153", "ДГ-26/153" }, reference: "my/contract-no@1");
+                Assert.False(string.IsNullOrEmpty(byRef.Explain));
+                Assert.Equal(2, byRef.Results.Count);
+                ValidatorTestValueResult ok = byRef.Results[0];
+                Assert.Equal("ДГ-2026/0153", ok.Value.GetString());
+                Assert.True(ok.Pass);
+                Assert.Null(ok.Reason);
+                Assert.Null(ok.Message);
+                Assert.Null(ok.RuleIndex);
+                ValidatorTestValueResult bad = byRef.Results[1];
+                Assert.False(bad.Pass);
+                Assert.Equal("pattern_mismatch", bad.Reason);
+                Assert.Equal("Номер договора не по шаблону ДГ-ГГГГ/NNNN", bad.Message);
+                Assert.Equal(0, bad.RuleIndex);
+
+                ValidatorTestResult bySpec = await client.Validators.TestAsync(new object[] { "7707083893", 7707083894L },
+                    spec: new { kind = "native", id = "inn" });
+                Assert.True(bySpec.Results[0].Pass);
+                Assert.False(bySpec.Results[1].Pass);
+                Assert.Equal(JsonValueKind.Number, bySpec.Results[1].Value.ValueKind);
+                Assert.Equal("checksum_mismatch", bySpec.Results[1].Reason);
+
+                int before = (await Mock.Requests(key)).Count;
+                await Assert.ThrowsAsync<ArgumentException>(() =>
+                    client.Validators.TestAsync(new[] { "x" }, reference: "my/contract-no@1", spec: new { kind = "native", id = "inn" }));
+                await Assert.ThrowsAsync<ArgumentException>(() => client.Validators.TestAsync(new[] { "x" }));
+                await Assert.ThrowsAsync<ArgumentException>(() => client.Validators.TestAsync(Array.Empty<string>(), reference: "inn@1"));
+                await Assert.ThrowsAsync<ArgumentException>(() => client.Validators.TestAsync(Enumerable.Repeat("1", 101), reference: "inn@1"));
+                await Assert.ThrowsAsync<ArgumentException>(() => client.Validators.TestAsync(new object[] { true }, reference: "inn@1"));
+                await Assert.ThrowsAsync<ArgumentException>(() => client.Validators.TestAsync(new[] { "x" }, spec: "[1, 2]"));
+                Assert.Equal(before, (await Mock.Requests(key)).Count);
+
+                var unknown = await Assert.ThrowsAsync<TypizerBadRequestException>(() =>
+                    client.Validators.TestAsync(new[] { "x" }, reference: "my/no-such-check@1"));
+                Assert.Equal("ref", unknown.Param);
+            }
+            JsonElement sent = (await Mock.Requests(key, "testValidator"))[1];
+            Assert.Equal("[\"7707083893\",7707083894]", sent.GetProperty("body").GetProperty("value").GetProperty("values").GetRawText());
+            Assert.False(sent.GetProperty("body").GetProperty("value").TryGetProperty("ref", out _));
+        }
+
+        [Fact(DisplayName = "SC-39 Validators.SuggestAsync: spec, tests (expect/got), converged, explain, source, candidates; nothing to go on is 400")]
+        public async Task SC39_ValidatorSuggest()
+        {
+            string key = Mock.Key("ok");
+            using (TypizerClient client = Mock.Client(key))
+            {
+                ValidatorSuggestion suggestion = await client.Validators.SuggestAsync(new ValidatorSuggestOptions
+                {
+                    Examples = new ValidatorExamples { Pass = new[] { "ДГ-2026/0153", "ДГ-2025/0001" }, Fail = new[] { "ДГ-26/153" } },
+                    Field = new ValidatorSuggestField { Name = "contract_no", Type = "string" },
+                });
+                Assert.Equal("rules", suggestion.Spec.GetProperty("kind").GetString());
+                Assert.Equal(3, suggestion.Tests.Count);
+                Assert.Equal(ValidatorOutcome.Pass, suggestion.Tests[0].Expect);
+                Assert.Equal(ValidatorOutcome.Pass, suggestion.Tests[0].Got);
+                Assert.Equal(ValidatorOutcome.Fail, suggestion.Tests[2].Expect);
+                Assert.Equal("ДГ-26/153", suggestion.Tests[2].Value.GetString());
+                Assert.Equal(suggestion.Tests.All(t => t.Expect == t.Got), suggestion.Converged);
+                Assert.False(string.IsNullOrEmpty(suggestion.Explain));
+                Assert.Equal("shape", suggestion.Source);
+                ValidatorCandidate candidate = Assert.Single(suggestion.CandidatesFromCatalog);
+                Assert.Equal("my/contract-no@1", candidate.Ref);
+                Assert.Equal("own", candidate.Kind);
+                Assert.Equal("contract_no", suggestion.Name);
+
+                var error = await Assert.ThrowsAsync<TypizerBadRequestException>(() => client.Validators.SuggestAsync(new ValidatorSuggestOptions()));
+                Assert.Equal(400, error.StatusCode);
+            }
+            JsonElement sent = (await Mock.Requests(key, "suggestValidator"))[0];
+            Assert.Equal("{\"name\":\"contract_no\",\"type\":\"string\"}", sent.GetProperty("body").GetProperty("value").GetProperty("field").GetRawText());
+        }
+
+        private static bool JsonDeepEquals(JsonElement a, JsonElement b)
+        {
+            if (a.ValueKind != b.ValueKind) return false;
+            switch (a.ValueKind)
+            {
+                case JsonValueKind.Object:
+                    List<JsonProperty> ap = a.EnumerateObject().ToList();
+                    List<JsonProperty> bp = b.EnumerateObject().ToList();
+                    return ap.Count == bp.Count && ap.Zip(bp, (x, y) => x.Name == y.Name && JsonDeepEquals(x.Value, y.Value)).All(r => r);
+                case JsonValueKind.Array:
+                    List<JsonElement> ai = a.EnumerateArray().ToList();
+                    List<JsonElement> bi = b.EnumerateArray().ToList();
+                    return ai.Count == bi.Count && ai.Zip(bi, JsonDeepEquals).All(r => r);
+                case JsonValueKind.String:
+                    return a.GetString() == b.GetString();
+                case JsonValueKind.Number:
+                    return a.GetDecimal() == b.GetDecimal();
+                default:
+                    return true;
+            }
+        }
+
         // ---- waiting ---------------------------------------------------------------------------
 
         [Fact(DisplayName = "SC-13 slow: ExtractAsync waits — exactly 1 POST (wait ≤ 60) and 3 GET /v1/runs/{id}")]

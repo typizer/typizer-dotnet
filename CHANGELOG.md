@@ -3,6 +3,31 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версии — [SemVer](https://semver.org/lang/ru/).
 Пакеты `Typizer` и `Typizer.Extensions.DependencyInjection` выходят с одной версией.
 
+## [0.3.0] — 2026-11-18
+
+Совместимо с 0.2.0: прежние вызовы работают без изменений.
+
+### Добавлено
+
+- Проверки полей: `FieldResult.Message` (причина фразой по-русски) и `FieldResult.Checks` (`FieldCheck`:
+  `Ref`, `Version`, `Name`, `Status`, `Rule`, `Reason`), `Run.Warnings()` (`FieldWarning`: `Path`,
+  `Message`, `Reason`), `Run.ChecksUsed` (`RunCheckUsed`), `SavedTypizer.Checks` и
+  `TypizerVersion.Checks` (`TypizerCheck`), `MeFeatures.ValidatorsSuggest`.
+- `client.Validators` — свои проверки (`my/…`): `ListAsync`, `GetAsync(id или "my/slug[@версия]")`,
+  `VersionsAsync`, `CreateAsync`, `UpdateAsync` (`ValidatorUpdateResult.Bump`), `ArchiveAsync`,
+  `TestAsync(values, reference | spec)`, `SuggestAsync`, с вариантами `…WithResponseAsync`;
+  спецификация — `JsonElement` как есть. Открытые перечисления `FieldCheckStatus`, `ValidatorBump`,
+  `ValidatorOutcome`.
+- Каталог проверок: `client.Catalog.Validators` — `ListAsync`, `GetAsync`, `ListVersionsAsync`,
+  `FavoriteAsync`, `UnfavoriteAsync`, `ReportAsync` (причина `false_positive`) и `ForkAsync` (своя
+  копия `my/<slug>`, ответ — `Validator`; `CatalogForkValidatorOptions`). У записей каталога —
+  `Type` (открытое перечисление `CatalogEntryType`), `RulePreview`, `Validator`
+  (`CatalogValidatorBrief`), у версии — `Validator` (`CatalogValidatorVersion`), у `Viewer` —
+  `UsedBy` и `Forks`, у `Owner` — `SourceValidatorId`; у `ValidatorCatalog` — `EntryId`,
+  `ReviewState`, `Hidden`, `Version`.
+- `FieldCheck.Corrected` — значение прочитано повторно после проваленной проверки («Перечитать при
+  ошибке», режим «Точный»).
+
 ## [0.2.0] — 2026-11-16
 
 Совместимо с 0.1.0: прежние вызовы работают без изменений.

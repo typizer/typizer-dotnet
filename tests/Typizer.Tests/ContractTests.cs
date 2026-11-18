@@ -114,15 +114,15 @@ namespace Typizer.Tests
             ["getTypizerVersion"] = c => c.Typizers.Versions.GetAsync(Id, 2),
             ["getTypizerXsd"] = c => c.Typizers.GetXsdAsync(Id),
             ["getCatalogPublisher"] = c => c.Catalog.Publishers.GetAsync("acme"),
-            ["listCatalog"] = c => c.Catalog.ListAsync(new CatalogListOptions { Query = "счёт", Category = CatalogCategory.Invoices, Kind = CatalogKind.Official, Publisher = "typizer", Favorites = true, Sort = "popular", Limit = 3, Cursor = "c" }).GetPageAsync(),
+            ["listCatalog"] = c => c.Catalog.Validators.ListAsync(new CatalogListOptions { Query = "счёт", Category = CatalogCategory.Invoices, Kind = CatalogKind.Official, Publisher = "typizer", Favorites = true, Sort = "popular", Limit = 3, Cursor = "c" }).GetPageAsync(),
             ["installCatalogEntry"] = c => c.Catalog.InstallAsync("schet-faktura@1", new CatalogInstallOptions { Name = "СФ" }),
-            ["forkCatalogEntry"] = c => c.Catalog.ForkAsync("upd", new CatalogInstallOptions { Version = "1.0.0", Name = "УПД" }),
-            ["favoriteCatalogEntry"] = c => c.Catalog.FavoriteAsync("upd"),
-            ["unfavoriteCatalogEntry"] = c => c.Catalog.UnfavoriteAsync("upd"),
-            ["listCatalogVersions"] = c => c.Catalog.ListVersionsAsync("upd"),
-            ["reportCatalogEntry"] = c => c.Catalog.ReportAsync("upd@1", "spam", "Реклама"),
-            ["getCatalogEntry"] = c => c.Catalog.GetAsync("schet-faktura@1"),
-            ["getCommunityCatalogEntry"] = c => c.Catalog.GetAsync("acme/akt-sverki", "1.2.0"),
+            ["forkCatalogEntry"] = c => c.Catalog.Validators.ForkAsync("inn", new CatalogForkValidatorOptions { Version = "1.0.0", Slug = "my-inn", Name = "Мой ИНН" }),
+            ["favoriteCatalogEntry"] = c => c.Catalog.Validators.FavoriteAsync("inn"),
+            ["unfavoriteCatalogEntry"] = c => c.Catalog.Validators.UnfavoriteAsync("inn"),
+            ["listCatalogVersions"] = c => c.Catalog.Validators.ListVersionsAsync("inn"),
+            ["reportCatalogEntry"] = c => c.Catalog.Validators.ReportAsync("inn@1", "false_positive", "Отклоняет верный ИНН"),
+            ["getCatalogEntry"] = c => c.Catalog.Validators.GetAsync("inn@1"),
+            ["getCommunityCatalogEntry"] = c => c.Catalog.Validators.GetAsync("acme/contract-no", "1.2.0"),
             ["getTypizerCatalogUpdate"] = c => c.Typizers.CatalogUpdate.GetAsync(Id, "2"),
             ["applyTypizerCatalogUpdate"] = c => c.Typizers.CatalogUpdate.ApplyAsync(Id, "2.0.0", new[] { "seller.inn" }),
             ["createRun"] = c => c.Runs.CreateAsync(TypizerFile.FromBytes(Schemas.Pdf, "a.pdf"), new RunCreateOptions { Typizer = Id, Wait = TimeSpan.FromSeconds(30), Format = OutputFormat.Xml, Mode = RunMode.Standard, WebhookUrl = "https://example.com/h", Metadata = new Dictionary<string, string> { ["k"] = "v" } }),
@@ -143,14 +143,22 @@ namespace Typizer.Tests
             ["testWebhookEndpoint"] = c => c.WebhookEndpoints.TestAsync(Id),
             ["listWebhookDeliveries"] = c => c.WebhookEndpoints.Deliveries.ListAsync(Id, new ListOptions { Limit = 1, Cursor = "whd_0" }).GetPageAsync(),
             ["retryWebhookDelivery"] = c => c.WebhookEndpoints.Deliveries.RetryAsync(Id),
+            ["listValidators"] = c => c.Validators.ListAsync(new ListOptions { Limit = 5, Cursor = "val_0" }).GetPageAsync(),
+            ["createValidator"] = c => c.Validators.CreateAsync(new ValidatorCreateOptions { Name = "Номер договора", Slug = "contract-no", Description = "d", Spec = Specs.ContractNo, Tests = new[] { ValidatorTest.Pass("ДГ-2026/0153"), ValidatorTest.Fail("ДГ-26/153", "коротко") }, Changelog = "c" }),
+            ["getValidator"] = c => c.Validators.GetAsync(Id),
+            ["getValidatorBySlug"] = c => c.Validators.GetAsync("my/contract-no@1"),
+            ["updateValidator"] = c => c.Validators.UpdateAsync(Id, new ValidatorUpdateOptions { Name = "Номер", Description = null, Spec = Specs.ContractNo, Tests = new[] { new ValidatorTest(42m, ValidatorOutcome.Fail) }, Changelog = "c" }),
+            ["deleteValidator"] = c => c.Validators.ArchiveAsync(Id),
+            ["testValidator"] = c => c.Validators.TestAsync(new object[] { "ДГ-2026/0153", 42 }, reference: "my/contract-no@1"),
+            ["suggestValidator"] = c => c.Validators.SuggestAsync(new ValidatorSuggestOptions { Description = "ДГ, год и номер", Examples = new ValidatorExamples { Pass = new[] { "ДГ-2026/0153" }, Fail = new object[] { "ДГ-26/153", 7 } }, Field = new ValidatorSuggestField { Name = "contract_no", Description = "Номер договора", Type = "string" } }),
         };
 
-        [Fact(DisplayName = "Every public operation has exactly one SDK call, and nothing else (49 today)")]
+        [Fact(DisplayName = "Every public operation has exactly one SDK call, and nothing else (57 today)")]
         public void EveryOperationIsCovered()
         {
             var spec = SpecOperations().Keys.OrderBy(k => k, StringComparer.Ordinal).ToArray();
             Assert.Equal(spec, Calls.Keys.OrderBy(k => k, StringComparer.Ordinal).ToArray());
-            Assert.Equal(49, spec.Length);
+            Assert.Equal(57, spec.Length);
         }
 
         public static IEnumerable<object[]> OperationIds() => Calls.Keys.OrderBy(k => k, StringComparer.Ordinal).Select(k => new object[] { k });
@@ -196,7 +204,11 @@ namespace Typizer.Tests
                     {
                         JsonElement schema = Resolve(Spec.Value.GetProperty("paths").GetProperty(op.Path).GetProperty(op.Method.ToLowerInvariant())
                             .GetProperty("requestBody").GetProperty("content").GetProperty("application/json").GetProperty("schema"));
-                        var allowed = new HashSet<string>(schema.GetProperty("properties").EnumerateObject().Select(p => p.Name));
+                        // A body that is one of several shapes (anyOf: a schema fork or a validator fork) allows the union.
+                        IEnumerable<JsonElement> shapes = schema.TryGetProperty("anyOf", out JsonElement any)
+                            ? any.EnumerateArray().Select(Resolve)
+                            : new[] { schema };
+                        var allowed = new HashSet<string>(shapes.SelectMany(x => x.GetProperty("properties").EnumerateObject()).Select(p => p.Name));
                         Assert.All(body.RootElement.EnumerateObject(), p => Assert.Contains(p.Name, allowed));
                     }
                 }
@@ -275,6 +287,30 @@ namespace Typizer.Tests
             [typeof(CatalogChangelogEntry)] = "#/components/schemas/CatalogUpdate/properties/changelog/items",
             [typeof(CatalogUpdateChange)] = "#/components/schemas/CatalogUpdate/properties/changes/items",
             [typeof(Problem)] = "#/components/schemas/Problem",
+            [typeof(FieldResult)] = "#/components/schemas/FieldResult",
+            [typeof(FieldCheck)] = "#/components/schemas/FieldCheck",
+            [typeof(FieldSource)] = "#/components/schemas/FieldSource",
+            [typeof(RunCheckUsed)] = "#/components/schemas/RunCheckUsed",
+            [typeof(TypizerCheck)] = "#/components/schemas/TypizerCheck",
+            [typeof(Validator)] = "#/components/schemas/Validator",
+            [typeof(ValidatorCatalog)] = "#/components/schemas/Validator/properties/catalog",
+            [typeof(CatalogValidatorBrief)] = "#/components/schemas/CatalogValidatorBrief",
+            [typeof(CatalogValidatorVersion)] = "#/components/schemas/CatalogValidatorVersion",
+            [typeof(CatalogViewerValidatorUse)] = "#/components/schemas/CatalogEntry/properties/viewer/properties/used_by/items",
+            [typeof(CatalogViewerValidatorFork)] = "#/components/schemas/CatalogEntry/properties/viewer/properties/forks/items",
+            [typeof(ValidatorForkedFrom)] = "#/components/schemas/Validator/properties/forked_from",
+            [typeof(ValidatorDetail)] = "#/components/schemas/ValidatorDetail",
+            [typeof(ValidatorVersion)] = "#/components/schemas/ValidatorVersion",
+            [typeof(ValidatorTest)] = "#/components/schemas/ValidatorTest",
+            [typeof(ValidatorUsedBy)] = "#/components/schemas/ValidatorUsedBy",
+            [typeof(ValidatorUpdateResult)] = "#/components/schemas/ValidatorUpdateResult",
+            [typeof(ValidatorPropagation)] = "#/components/schemas/ValidatorUpdateResult/properties/propagated_to/items",
+            [typeof(ValidatorTestResult)] = "#/components/schemas/ValidatorTestResult",
+            [typeof(ValidatorTestValueResult)] = "#/components/schemas/ValidatorTestResult/properties/results/items",
+            [typeof(ValidatorSuggestion)] = "#/components/schemas/ValidatorSuggestion",
+            [typeof(ValidatorSuggestionTest)] = "#/components/schemas/ValidatorSuggestion/properties/tests/items",
+            [typeof(ValidatorCandidate)] = "#/components/schemas/ValidatorSuggestion/properties/candidates_from_catalog/items",
+            [typeof(ValidatorCandidateExamples)] = "#/components/schemas/ValidatorSuggestion/properties/candidates_from_catalog/items/properties/examples",
         };
 
         /// <summary>Problem fields the SDK keeps in ExtensionData (ApiException.Extra) on purpose.</summary>
@@ -302,9 +338,10 @@ namespace Typizer.Tests
             // Request bodies are built by the SDK's options classes; lists and the open string enums need no model.
             var notModels = new HashSet<string>
             {
-                "CreateTypizerRequest", "UpdateTypizerRequest", "GenerateTypizerRequest", "CatalogInstallRequest", "CatalogReportRequest",
+                "CreateTypizerRequest", "UpdateTypizerRequest", "GenerateTypizerRequest", "CatalogInstallRequest", "CatalogForkValidatorRequest", "CatalogReportRequest",
                 "CatalogUpdateRequest", "CreateRunRequest", "CreateBatchRequest", "ExtractRequest", "CreateWebhookEndpointRequest",
                 "UpdateWebhookEndpointRequest", "CatalogList", "Scope", "WebhookEventType", "DeletedTypizer", "DeletedWebhookEndpoint",
+                "CreateValidatorRequest", "UpdateValidatorRequest", "TestValidatorRequest", "SuggestValidatorRequest", "DeletedValidator",
             };
             foreach (JsonProperty schema in Spec.Value.GetProperty("components").GetProperty("schemas").EnumerateObject())
             {

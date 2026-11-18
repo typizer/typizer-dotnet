@@ -53,6 +53,11 @@ namespace Typizer
         public OutputFormat DefaultFormat { get; set; }
         public RunMode Mode { get; set; }
         public TypizerCatalogSource? CatalogSource { get; set; }
+        /// <summary>
+        /// Проверки, на версиях которых зафиксирована текущая версия (ссылки из <c>x-typizer-check</c>:
+        /// <c>my/contract-no</c> + <c>1.0.0</c>). Пустой список — проверок по ссылке нет.
+        /// </summary>
+        public IReadOnlyList<TypizerCheck> Checks { get; set; } = Array.Empty<TypizerCheck>();
         public DateTimeOffset CreatedAt { get; set; }
         public DateTimeOffset UpdatedAt { get; set; }
         [JsonExtensionData]
@@ -108,9 +113,24 @@ namespace Typizer
         public int Version { get; set; }
         public JsonElement Schema { get; set; }
         public string Instructions { get; set; } = string.Empty;
+        /// <summary>Проверки, на версиях которых зафиксирована эта версия.</summary>
+        public IReadOnlyList<TypizerCheck> Checks { get; set; } = Array.Empty<TypizerCheck>();
         public DateTimeOffset CreatedAt { get; set; }
         [JsonExtensionData]
         public IDictionary<string, JsonElement>? ExtensionData { get; set; }
+    }
+
+    /// <summary>Проверка, на версии которой зафиксирован типизатор (<see cref="SavedTypizer.Checks"/>).</summary>
+    public sealed class TypizerCheck
+    {
+        /// <summary><c>my/contract-no</c>, <c>inn</c>, <c>vin</c>, …</summary>
+        public string Ref { get; set; } = string.Empty;
+        /// <summary>Точная версия: <c>1.0.0</c>.</summary>
+        public string Version { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        [JsonExtensionData]
+        public IDictionary<string, JsonElement>? ExtensionData { get; set; }
+        public override string ToString() => "TypizerCheck(" + Ref + "@" + Version + ")";
     }
 
     /// <summary>Пакет — много документов одним типизатором.</summary>
@@ -279,6 +299,8 @@ namespace Typizer
         public bool CatalogCommunity { get; set; }
         /// <summary>Приём документов по почте («Почта для документов»).</summary>
         public bool InboundMail { get; set; }
+        /// <summary>Доступен <c>client.Validators.SuggestAsync</c> — проверку можно составить по описанию словами.</summary>
+        public bool ValidatorsSuggest { get; set; }
         [JsonExtensionData]
         public IDictionary<string, JsonElement>? ExtensionData { get; set; }
     }

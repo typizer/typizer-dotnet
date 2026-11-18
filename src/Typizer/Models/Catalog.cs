@@ -11,6 +11,8 @@ namespace Typizer
         /// <summary><c>cat_…</c></summary>
         public string Id { get; set; } = string.Empty;
         public string Object { get; set; } = "catalog_entry";
+        /// <summary><c>schema</c> — схема документа (добавляется к себе как типизатор) или <c>validator</c> — проверка поля (подключается ссылкой в <c>x-typizer-check</c>, без установки).</summary>
+        public CatalogEntryType Type { get; set; } = CatalogEntryType.Schema;
         /// <summary>Ссылка для <c>Catalog</c> в <see cref="ExtractOptions"/>: <c>schet-faktura</c> или <c>acme/akt-sverki</c>.</summary>
         public string Ref { get; set; } = string.Empty;
         public CatalogKind Kind { get; set; }
@@ -23,6 +25,10 @@ namespace Typizer
         public bool Featured { get; set; }
         public CatalogVersionBrief LatestVersion { get; set; } = new CatalogVersionBrief();
         public IReadOnlyList<string> FieldsPreview { get; set; } = Array.Empty<string>();
+        /// <summary>Только у проверок: правило короткими «чипами» (<c>2 буквы</c>, <c>–</c>, <c>4 цифры</c>).</summary>
+        public IReadOnlyList<string>? RulePreview { get; set; }
+        /// <summary>Только у проверок: что записать в <c>x-typizer-check</c> и правило.</summary>
+        public CatalogValidatorBrief? Validator { get; set; }
         public CatalogEntryStats Stats { get; set; } = new CatalogEntryStats();
         public string? WebUrl { get; set; }
         public DateTimeOffset UpdatedAt { get; set; }
@@ -61,6 +67,35 @@ namespace Typizer
     {
         public bool Favorited { get; set; }
         public IReadOnlyList<CatalogViewerTypizer> Typizers { get; set; } = Array.Empty<CatalogViewerTypizer>();
+        /// <summary>Только у проверок: ваши типизаторы, которые её используют.</summary>
+        public IReadOnlyList<CatalogViewerValidatorUse>? UsedBy { get; set; }
+        /// <summary>Только у проверок: ваши проверки, сделанные на её основе.</summary>
+        public IReadOnlyList<CatalogViewerValidatorFork>? Forks { get; set; }
+        [JsonExtensionData]
+        public IDictionary<string, JsonElement>? ExtensionData { get; set; }
+    }
+
+    /// <summary>Ваш типизатор, поле которого ссылается на проверку каталога.</summary>
+    public sealed class CatalogViewerValidatorUse
+    {
+        public string TypizerId { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        /// <summary>Ссылка в схеме: <c>inn@1</c>.</summary>
+        public string Ref { get; set; } = string.Empty;
+        /// <summary>Версия, на которой зафиксирован типизатор.</summary>
+        public string LockedVersion { get; set; } = string.Empty;
+        [JsonExtensionData]
+        public IDictionary<string, JsonElement>? ExtensionData { get; set; }
+    }
+
+    /// <summary>Ваша проверка, сделанная на основе проверки каталога.</summary>
+    public sealed class CatalogViewerValidatorFork
+    {
+        /// <summary><c>val_…</c></summary>
+        public string Id { get; set; } = string.Empty;
+        /// <summary><c>my/&lt;slug&gt;</c></summary>
+        public string Ref { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
         [JsonExtensionData]
         public IDictionary<string, JsonElement>? ExtensionData { get; set; }
     }
@@ -100,6 +135,8 @@ namespace Typizer
         public string? ReviewNote { get; set; }
         public bool Hidden { get; set; }
         public string? SourceTypizerId { get; set; }
+        /// <summary>Только у проверок: ваша проверка, из которой опубликована.</summary>
+        public string? SourceValidatorId { get; set; }
         [JsonExtensionData]
         public IDictionary<string, JsonElement>? ExtensionData { get; set; }
     }
@@ -165,6 +202,33 @@ namespace Typizer
         public string Instructions { get; set; } = string.Empty;
         public JsonElement? ExampleOutput { get; set; }
         public IReadOnlyList<SchemaChange> Changes { get; set; } = Array.Empty<SchemaChange>();
+        /// <summary>Только у проверок: правило, опубликованные примеры и объяснение.</summary>
+        public CatalogValidatorVersion? Validator { get; set; }
+    }
+
+    /// <summary>Что проверка каталога даёт полю схемы.</summary>
+    public sealed class CatalogValidatorBrief
+    {
+        /// <summary>Что записать в <c>x-typizer-check</c>: <c>inn@1</c>.</summary>
+        public string Ref { get; set; } = string.Empty;
+        /// <summary>Правило как есть (<c>kind: "rules"</c> или <c>"native"</c>).</summary>
+        public JsonElement Spec { get; set; }
+        [JsonExtensionData]
+        public IDictionary<string, JsonElement>? ExtensionData { get; set; }
+    }
+
+    /// <summary>Версия проверки каталога: правило, примеры автора, объяснение по-русски.</summary>
+    public sealed class CatalogValidatorVersion
+    {
+        public string Ref { get; set; } = string.Empty;
+        public JsonElement Spec { get; set; }
+        public IReadOnlyList<ValidatorTest> Tests { get; set; } = Array.Empty<ValidatorTest>();
+        /// <summary>Сколько ещё примеров автора проходят, но не опубликованы.</summary>
+        public int TestsHidden { get; set; }
+        public string Explain { get; set; } = string.Empty;
+        public IReadOnlyList<string> RulePreview { get; set; } = Array.Empty<string>();
+        [JsonExtensionData]
+        public IDictionary<string, JsonElement>? ExtensionData { get; set; }
     }
 
     /// <summary>Изменение схемы между версиями.</summary>

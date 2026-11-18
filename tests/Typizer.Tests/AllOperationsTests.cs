@@ -12,7 +12,7 @@ namespace Typizer.Tests
     /// </summary>
     public class AllOperationsTests
     {
-        [Fact(DisplayName = "All 49 operations succeed against the mock and parse into models")]
+        [Fact(DisplayName = "All 57 operations succeed against the mock and parse into models")]
         public async Task EveryOperationAgainstTheMock()
         {
             string key = Mock.Key("ok");
@@ -124,6 +124,22 @@ namespace Typizer.Tests
                 WebhookDelivery redelivered = await c.WebhookEndpoints.Deliveries.RetryAsync(deliveries[0].Id);
                 Assert.Equal(deliveries[0].EventId, redelivered.EventId);
                 Assert.True((await c.WebhookEndpoints.DeleteAsync(endpoint.Id)).Deleted);
+
+                // Validators
+                var own = new List<Validator>();
+                await foreach (Validator v in c.Validators.ListAsync()) own.Add(v);
+                Validator seeded = Assert.Single(own, v => v.Ref == "my/contract-no");
+                Assert.Equal(seeded.Id, (await c.Validators.GetAsync("my/contract-no")).Id);
+                Assert.NotEmpty((await c.Validators.GetAsync(seeded.Id)).Versions);
+                Validator created = await c.Validators.CreateAsync("Номер спецификации", Specs.ContractNo, new[] { ValidatorTest.Pass("ДГ-2026/0001") });
+                Assert.Equal("1.0.0", created.Version.Version);
+                ValidatorUpdateResult bumped = await c.Validators.UpdateAsync(created.Id, new ValidatorUpdateOptions { Name = "Номер спецификации (СП)" });
+                Assert.Equal(ValidatorBump.Patch, bumped.Bump);
+                ValidatorTestResult tested = await c.Validators.TestAsync(new[] { "ДГ-2026/0153" }, reference: "my/contract-no@1");
+                Assert.True(Assert.Single(tested.Results).Pass);
+                ValidatorSuggestion suggestion = await c.Validators.SuggestAsync(new ValidatorSuggestOptions { Examples = new ValidatorExamples { Pass = new[] { "СП-2026/0001" } } });
+                Assert.Equal(JsonValueKind.Object, suggestion.Spec.ValueKind);
+                Assert.True((await c.Validators.ArchiveAsync(created.Id)).Deleted);
 
                 Assert.True((await c.Typizers.DeleteAsync(typizer.Id)).Deleted);
                 Assert.True((await c.Files.DeleteAsync(file.Id)).Deleted);

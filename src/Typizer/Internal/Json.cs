@@ -51,11 +51,24 @@ namespace Typizer.Internal
         /// elements follow it). Accepts JSON text, JsonElement/JsonDocument/JsonNode, dictionaries,
         /// anonymous objects and POCOs.
         /// </summary>
-        public static JsonElement ToSchema(object schema, string paramName)
+        public static JsonElement ToSchema(object schema, string paramName) =>
+            ToObject(schema, paramName, "Схема должна быть объектом JSON Schema ({\"type\": \"object\", \"properties\": {…}}), а не ",
+                "Схема — это JSON Schema (объект или JSON-текст). Для схемы из каталога задайте ExtractOptions.Catalog, " +
+                "для сохранённого типизатора — ExtractOptions.Typizer. Текст не разобрался как JSON: ");
+
+        /// <summary>
+        /// A validator spec (<c>{"kind": "rules", …}</c>) as is: a free JSON object, never closed into
+        /// types (SPEC §3). The same inputs as <see cref="ToSchema"/>.
+        /// </summary>
+        public static JsonElement ToSpec(object spec, string paramName) =>
+            ToObject(spec, paramName, "Спецификация проверки должна быть объектом JSON ({\"kind\": \"rules\", …}), а не ",
+                "Спецификация проверки — объект JSON или JSON-текст. Текст не разобрался как JSON: ");
+
+        private static JsonElement ToObject(object value, string paramName, string notObject, string badText)
         {
-            if (schema == null) throw new ArgumentNullException(paramName);
+            if (value == null) throw new ArgumentNullException(paramName);
             JsonElement element;
-            switch (schema)
+            switch (value)
             {
                 case JsonElement e:
                     element = e;
@@ -76,23 +89,43 @@ namespace Typizer.Internal
                     }
                     catch (JsonException ex)
                     {
-                        throw new ArgumentException(
-                            "Схема — это JSON Schema (объект или JSON-текст). Для схемы из каталога задайте ExtractOptions.Catalog, " +
-                            "для сохранённого типизатора — ExtractOptions.Typizer. Текст не разобрался как JSON: " + ex.Message,
-                            paramName, ex);
+                        throw new ArgumentException(badText + ex.Message, paramName, ex);
                     }
                     break;
                 default:
-                    element = JsonSerializer.SerializeToElement(schema, schema.GetType(), SchemaOptions);
+                    element = JsonSerializer.SerializeToElement(value, value.GetType(), SchemaOptions);
                     break;
             }
             if (element.ValueKind != JsonValueKind.Object)
-            {
-                throw new ArgumentException(
-                    "Схема должна быть объектом JSON Schema ({\"type\": \"object\", \"properties\": {…}}), а не " +
-                    element.ValueKind.ToString().ToLowerInvariant() + ".", paramName);
-            }
+                throw new ArgumentException(notObject + element.ValueKind.ToString().ToLowerInvariant() + ".", paramName);
             return element.Clone();
+        }
+
+        /// <summary>
+        /// A value a validator checks — a string or a number (<c>int</c>, <c>long</c>, <c>decimal</c>,
+        /// <c>double</c>, …, or a <see cref="JsonElement"/> holding one); anything else is an argument error.
+        /// </summary>
+        public static void WriteCheckValue(Utf8JsonWriter writer, object? value, string paramName)
+        {
+            switch (value)
+            {
+                case string s: writer.WriteStringValue(s); return;
+                case int i: writer.WriteNumberValue(i); return;
+                case long l: writer.WriteNumberValue(l); return;
+                case short sh: writer.WriteNumberValue(sh); return;
+                case byte b: writer.WriteNumberValue(b); return;
+                case sbyte sb: writer.WriteNumberValue(sb); return;
+                case ushort us: writer.WriteNumberValue(us); return;
+                case uint ui: writer.WriteNumberValue(ui); return;
+                case ulong ul: writer.WriteNumberValue(ul); return;
+                case decimal m: writer.WriteNumberValue(m); return;
+                case double d when !double.IsNaN(d) && !double.IsInfinity(d): writer.WriteNumberValue(d); return;
+                case float f when !float.IsNaN(f) && !float.IsInfinity(f): writer.WriteNumberValue(f); return;
+                case JsonElement e when e.ValueKind == JsonValueKind.String || e.ValueKind == JsonValueKind.Number: e.WriteTo(writer); return;
+                default:
+                    throw new ArgumentException("Значение для проверки — строка или конечное число, а не " +
+                        (value == null ? "null" : value.GetType().Name) + ".", paramName);
+            }
         }
 
         /// <summary>Builds a JSON request body with only the properties that were set.</summary>

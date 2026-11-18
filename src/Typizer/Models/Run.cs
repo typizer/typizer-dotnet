@@ -38,6 +38,14 @@ namespace Typizer
         /// </summary>
         public IReadOnlyDictionary<string, FieldResult>? Fields { get; set; }
 
+        /// <summary>
+        /// Проверки, которые использовал прогон разовой схемы: ссылки из <c>x-typizer-check</c> на точных
+        /// версиях (<c>my/contract-no</c> + <c>1.0.0</c>, <c>inn</c> + <c>1.0.0</c>) и встроенные в схему
+        /// (<c>Ref = "inline"</c>, с <see cref="RunCheckUsed.Field"/>). <c>null</c> у прогона типизатора —
+        /// его проверки в <see cref="SavedTypizer.Checks"/>, — и в вебхуках, отправленных до появления поля.
+        /// </summary>
+        public IReadOnlyList<RunCheckUsed>? ChecksUsed { get; set; }
+
         /// <summary>Результат удалён по сроку хранения организации.</summary>
         public bool OutputExpired { get; set; }
         public RunError? Error { get; set; }
@@ -84,6 +92,23 @@ namespace Typizer
                 if (field.Value == null) continue;
                 if (field.Value.Status == FieldStatus.Warn || field.Value.Status == FieldStatus.Missing)
                     result.Add((field.Key, field.Value));
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Что показать человеку: поля со статусом <c>warn</c> в порядке <see cref="Fields"/> — путь,
+        /// готовая фраза по-русски (<see cref="FieldResult.Message"/>; <c>null</c> у прогонов и вебхуков до
+        /// появления поля) и код причины. Поля <c>missing</c> сюда не входят: проверять в них нечего.
+        /// </summary>
+        public IReadOnlyList<FieldWarning> Warnings()
+        {
+            var result = new List<FieldWarning>();
+            if (Fields == null) return result;
+            foreach (KeyValuePair<string, FieldResult> field in Fields)
+            {
+                if (field.Value != null && field.Value.Status == FieldStatus.Warn)
+                    result.Add(new FieldWarning(field.Key, field.Value.Message, field.Value.Reason));
             }
             return result;
         }
@@ -149,11 +174,85 @@ namespace Typizer
     public sealed class FieldResult
     {
         public FieldStatus Status { get; set; }
-        /// <summary>Только при <c>warn</c>: <c>checksum_mismatch</c>, <c>invalid_format</c>, <c>sum_mismatch</c>, <c>implausible_date</c>, <c>no_source</c>, <c>code_mismatch</c> (значение расходится со штрихкодом или QR-кодом на документе) и другие.</summary>
+        /// <summary>Только при <c>warn</c>: <c>checksum_mismatch</c>, <c>invalid_format</c>, <c>pattern_mismatch</c>, <c>not_in_list</c>, <c>out_of_range</c>, <c>sum_mismatch</c>, <c>rule_failed</c>, <c>implausible_date</c>, <c>no_source</c>, <c>code_mismatch</c> (значение расходится со штрихкодом или QR-кодом на документе) и другие.</summary>
         public string? Reason { get; set; }
+        /// <summary>
+        /// Та же причина готовой фразой по-русски — сообщение проверки (<c>«Номер договора не по шаблону
+        /// ДГ-ГГГГ/NNNN»</c>) или общий текст причины; <c>null</c>, когда предупреждения нет, и у прогонов
+        /// до появления поля.
+        /// </summary>
+        public string? Message { get; set; }
+        /// <summary>
+        /// Проверки поля и их итоги: официальные (<c>inn</c>), свои (<c>my/contract-no</c>), встроенные в
+        /// схему (<c>inline</c>), сверка документа (<c>doc:…</c>). Пустой список, если проверок не было.
+        /// </summary>
+        public IReadOnlyList<FieldCheck> Checks { get; set; } = Array.Empty<FieldCheck>();
         public IReadOnlyList<FieldSource> Sources { get; set; } = Array.Empty<FieldSource>();
         [JsonExtensionData]
         public IDictionary<string, JsonElement>? ExtensionData { get; set; }
+    }
+
+    /// <summary>Одна проверка поля (<see cref="FieldResult.Checks"/>) и её итог.</summary>
+    public sealed class FieldCheck
+    {
+        /// <summary><c>inn</c>, <c>my/contract-no</c>, <c>inline</c> (встроенная в схему), <c>doc:&lt;id&gt;</c> (сверка документа).</summary>
+        public string Ref { get; set; } = string.Empty;
+        /// <summary>Точная версия (<c>1.0.0</c>); <c>null</c> у встроенной проверки.</summary>
+        public string? Version { get; set; }
+        /// <summary>Название (<c>ИНН</c>, <c>Номер договора</c>); <c>null</c> у встроенной проверки.</summary>
+        public string? Name { get; set; }
+        /// <summary><c>pass</c>, <c>fail</c> или <c>skipped</c> (открытое перечисление).</summary>
+        public FieldCheckStatus Status { get; set; }
+        /// <summary>Правило, решившее исход: <c>checksum</c>, <c>format</c>, <c>pattern</c>, …</summary>
+        public string? Rule { get; set; }
+        /// <summary>При <c>fail</c>: <c>pattern_mismatch</c>, <c>invalid_format</c>, <c>checksum_mismatch</c>, … — как <see cref="FieldResult.Reason"/>.</summary>
+        public string? Reason { get; set; }
+        /// <summary>Только при <c>pass</c>: проверка не прошла с первого раза, поле прочитано ещё раз из того же места документа («Перечитать при ошибке», режим «Точный»).</summary>
+        public bool? Corrected { get; set; }
+        [JsonExtensionData]
+        public IDictionary<string, JsonElement>? ExtensionData { get; set; }
+
+        public override string ToString() => "FieldCheck(" + Ref + (Version != null ? "@" + Version : string.Empty) + ", " + Status + ")";
+    }
+
+    /// <summary>
+    /// Предупреждение по полю (<see cref="Run.Warnings"/>): путь, фраза для человека и код причины.
+    /// </summary>
+    public sealed class FieldWarning
+    {
+        public FieldWarning(string path, string? message, string? reason)
+        {
+            Path = path ?? throw new ArgumentNullException(nameof(path));
+            Message = message;
+            Reason = reason;
+        }
+
+        /// <summary>Путь поля в нотации API: <c>seller.inn</c>, <c>items[0].amount</c>.</summary>
+        public string Path { get; }
+        /// <summary>Готовая фраза по-русски; <c>null</c> у прогонов и вебхуков до появления <see cref="FieldResult.Message"/>.</summary>
+        public string? Message { get; }
+        /// <summary>Код причины: <c>pattern_mismatch</c>, <c>checksum_mismatch</c>, …</summary>
+        public string? Reason { get; }
+
+        // Не значение поля: это данные документа.
+        public override string ToString() => "FieldWarning(" + Path + ", " + Reason + ")";
+    }
+
+    /// <summary>Проверка, которую использовал прогон разовой схемы (<see cref="Run.ChecksUsed"/>).</summary>
+    public sealed class RunCheckUsed
+    {
+        /// <summary><c>inn</c>, <c>my/contract-no</c> или <c>inline</c> — встроенная в схему.</summary>
+        public string Ref { get; set; } = string.Empty;
+        /// <summary>Точная версия; <c>null</c> у встроенной проверки.</summary>
+        public string? Version { get; set; }
+        /// <summary>Название; <c>null</c> у встроенной проверки.</summary>
+        public string? Name { get; set; }
+        /// <summary>Путь поля — только у встроенной проверки.</summary>
+        public string? Field { get; set; }
+        [JsonExtensionData]
+        public IDictionary<string, JsonElement>? ExtensionData { get; set; }
+
+        public override string ToString() => "RunCheckUsed(" + Ref + (Version != null ? "@" + Version : string.Empty) + ")";
     }
 
     /// <summary>Где в документе найдено значение.</summary>

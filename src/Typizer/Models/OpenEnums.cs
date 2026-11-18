@@ -207,6 +207,83 @@ namespace Typizer
         public override string ToString() => Value;
     }
 
+    /// <summary>Тип записи каталога: <c>schema</c> — схема документа, <c>validator</c> — проверка поля.</summary>
+    [JsonConverter(typeof(OpenEnumConverter<CatalogEntryType>))]
+    public readonly struct CatalogEntryType : IEquatable<CatalogEntryType>
+    {
+        private readonly string? _value;
+        public CatalogEntryType(string value) => _value = value ?? throw new ArgumentNullException(nameof(value));
+        /// <summary>Схема документа.</summary>
+        public static CatalogEntryType Schema { get; } = new CatalogEntryType("schema");
+        /// <summary>Проверка поля.</summary>
+        public static CatalogEntryType Validator { get; } = new CatalogEntryType("validator");
+        public string Value => _value ?? string.Empty;
+        public static implicit operator CatalogEntryType(string value) => new CatalogEntryType(value);
+        public static bool operator ==(CatalogEntryType left, CatalogEntryType right) => left.Equals(right);
+        public static bool operator !=(CatalogEntryType left, CatalogEntryType right) => !left.Equals(right);
+        public bool Equals(CatalogEntryType other) => string.Equals(Value, other.Value, StringComparison.Ordinal);
+        public override bool Equals(object? obj) => obj is CatalogEntryType other && Equals(other);
+        public override int GetHashCode() => StringComparer.Ordinal.GetHashCode(Value);
+        public override string ToString() => Value;
+    }
+
+    /// <summary>Итог одной проверки поля (<see cref="FieldCheck.Status"/>): <c>pass</c>, <c>fail</c>, <c>skipped</c>.</summary>
+    [JsonConverter(typeof(OpenEnumConverter<FieldCheckStatus>))]
+    public readonly struct FieldCheckStatus : IEquatable<FieldCheckStatus>
+    {
+        private readonly string? _value;
+        public FieldCheckStatus(string value) => _value = value ?? throw new ArgumentNullException(nameof(value));
+        /// <summary>Проверка пройдена.</summary>
+        public static FieldCheckStatus Pass { get; } = new FieldCheckStatus("pass");
+        /// <summary>Проверка не пройдена — поле <c>warn</c>.</summary>
+        public static FieldCheckStatus Fail { get; } = new FieldCheckStatus("fail");
+        /// <summary>Проверка не применялась (значения нет или тип не подходит).</summary>
+        public static FieldCheckStatus Skipped { get; } = new FieldCheckStatus("skipped");
+        public string Value => _value ?? string.Empty;
+        public static implicit operator FieldCheckStatus(string value) => new FieldCheckStatus(value);
+        public static bool operator ==(FieldCheckStatus left, FieldCheckStatus right) => left.Equals(right);
+        public static bool operator !=(FieldCheckStatus left, FieldCheckStatus right) => !left.Equals(right);
+        public bool Equals(FieldCheckStatus other) => string.Equals(Value, other.Value, StringComparison.Ordinal);
+        public override bool Equals(object? obj) => obj is FieldCheckStatus other && Equals(other);
+        public override int GetHashCode() => StringComparer.Ordinal.GetHashCode(Value);
+        public override string ToString() => Value;
+    }
+    /// <summary>Какой стала новая версия проверки после <c>Validators.UpdateAsync</c>: <c>major</c>, <c>minor</c>, <c>patch</c> или <c>none</c> (версия не менялась).</summary>
+    [JsonConverter(typeof(OpenEnumConverter<ValidatorBump>))]
+    public readonly struct ValidatorBump : IEquatable<ValidatorBump>
+    {
+        private readonly string? _value;
+        public ValidatorBump(string value) => _value = value ?? throw new ArgumentNullException(nameof(value));
+        public static ValidatorBump Major { get; } = new ValidatorBump("major");
+        public static ValidatorBump Minor { get; } = new ValidatorBump("minor");
+        public static ValidatorBump Patch { get; } = new ValidatorBump("patch");
+        public static ValidatorBump None { get; } = new ValidatorBump("none");
+        public string Value => _value ?? string.Empty;
+        public static implicit operator ValidatorBump(string value) => new ValidatorBump(value);
+        public static bool operator ==(ValidatorBump left, ValidatorBump right) => left.Equals(right);
+        public static bool operator !=(ValidatorBump left, ValidatorBump right) => !left.Equals(right);
+        public bool Equals(ValidatorBump other) => string.Equals(Value, other.Value, StringComparison.Ordinal);
+        public override bool Equals(object? obj) => obj is ValidatorBump other && Equals(other);
+        public override int GetHashCode() => StringComparer.Ordinal.GetHashCode(Value);
+        public override string ToString() => Value;
+    }
+    /// <summary>Ожидаемый или полученный итог теста проверки: <c>pass</c> (должно пройти) или <c>fail</c> (не должно).</summary>
+    [JsonConverter(typeof(OpenEnumConverter<ValidatorOutcome>))]
+    public readonly struct ValidatorOutcome : IEquatable<ValidatorOutcome>
+    {
+        private readonly string? _value;
+        public ValidatorOutcome(string value) => _value = value ?? throw new ArgumentNullException(nameof(value));
+        public static ValidatorOutcome Pass { get; } = new ValidatorOutcome("pass");
+        public static ValidatorOutcome Fail { get; } = new ValidatorOutcome("fail");
+        public string Value => _value ?? string.Empty;
+        public static implicit operator ValidatorOutcome(string value) => new ValidatorOutcome(value);
+        public static bool operator ==(ValidatorOutcome left, ValidatorOutcome right) => left.Equals(right);
+        public static bool operator !=(ValidatorOutcome left, ValidatorOutcome right) => !left.Equals(right);
+        public bool Equals(ValidatorOutcome other) => string.Equals(Value, other.Value, StringComparison.Ordinal);
+        public override bool Equals(object? obj) => obj is ValidatorOutcome other && Equals(other);
+        public override int GetHashCode() => StringComparer.Ordinal.GetHashCode(Value);
+        public override string ToString() => Value;
+    }
     /// <summary>JSON ⇄ open enum struct: any string in, the same string out; never throws on new values.</summary>
     internal sealed class OpenEnumConverter<T> : JsonConverter<T> where T : struct
     {

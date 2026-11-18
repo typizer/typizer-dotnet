@@ -112,6 +112,64 @@ record Invoice(string InvoiceNumber, decimal Total);
 50 МиБ (лимит API) SDK отклоняет до отправки той же `TypizerFileTooLargeException`, что вернул бы
 сервер.
 
+### Проверки полей
+
+Поле схемы может нести проверку `x-typizer-check`: официальную (`"inn"`), свою (`"my/contract-no@1"`)
+или встроенную — объект прямо в схеме (`{"kind": "rules", …}`); SDK передаёт схему как есть. Поле, не
+прошедшее проверку, — `warn`: `run.Warnings()` отдаёт путь, готовую фразу по-русски (`Message`) и код
+причины (`Reason`). Все проверки поля и их итоги — в `field.Checks`; у прогона разовой схемы
+`run.ChecksUsed` перечисляет проверки на точных версиях, у типизатора они в `SavedTypizer.Checks`.
+
+Свои проверки — `client.Validators`: `CreateAsync` (тесты — контракт версии: красный тест не даст
+сохранить), `UpdateAsync` (новые правила — новая версия, `Bump`), `GetAsync("my/contract-no")`,
+`ListAsync`, `ArchiveAsync`. `TestAsync` прогоняет значения через проверку (ссылку или спецификацию),
+ничего не сохраняя; `SuggestAsync` предлагает спецификацию по описанию и примерам. Спецификация — JSON
+как есть (текст, `JsonElement`, словарь), SDK не закрывает её в типы.
+
+Готовые проверки каталога (ИНН, IBAN, VIN и другие) подключаются ссылкой без установки:
+`"x-typizer-check": "iban@1"`. Список — `client.Catalog.Validators.ListAsync()`, своя копия для
+правки — `client.Catalog.Validators.ForkAsync("iban@1")`.
+
+```csharp
+using Typizer;
+
+using var client = new TypizerClient();
+
+await client.Validators.CreateAsync(new ValidatorCreateOptions
+{
+    Name = "Номер договора",
+    Slug = "contract-no",
+    Spec = """
+    {
+      "kind": "rules",
+      "applies_to": "string",
+      "normalize": { "strip": ["spaces"], "case": "upper" },
+      "rules": [{ "type": "pattern", "pattern": "ДГ-\\d{4}/\\d{4}" }],
+      "message": "Номер договора не по шаблону ДГ-ГГГГ/NNNN"
+    }
+    """,
+    Tests = new[] { ValidatorTest.Pass("ДГ-2026/0153"), ValidatorTest.Fail("ДГ-26/153") },
+});
+
+ValidatorTestResult test = await client.Validators.TestAsync(new[] { "ДГ-2026/0001", "ДГ-26/1" }, reference: "my/contract-no@1");
+foreach (ValidatorTestValueResult result in test.Results)
+    Console.WriteLine($"{result.Value}: {(result.Pass ? "проходит" : result.Message)}");
+
+string schema = """
+{
+  "type": "object",
+  "properties": {
+    "contract_no": { "type": "string", "x-typizer-check": "my/contract-no@1" },
+    "seller_inn": { "type": "string", "x-typizer-check": "inn" }
+  }
+}
+""";
+Run run = await client.ExtractAsync(TypizerFile.FromPath("contract.pdf"), schema);
+
+foreach (FieldWarning warning in run.Warnings())
+    Console.WriteLine($"{warning.Path}: {warning.Message}"); // contract_no: Номер договора не по шаблону ДГ-ГГГГ/NNNN
+```
+
 ## ASP.NET Core и DI
 
 `Typizer.Extensions.DependencyInjection` регистрирует `TypizerClient` как типизированный клиент

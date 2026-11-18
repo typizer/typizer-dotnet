@@ -14,20 +14,36 @@ namespace Typizer
     public sealed class CatalogResource
     {
         private readonly HttpPipeline _pipeline;
+        /// <summary><c>null</c> for schemas (the API's default); <c>validator</c> inside <see cref="Validators"/>.</summary>
+        private readonly string? _type;
 
-        internal CatalogResource(HttpPipeline pipeline)
+        internal CatalogResource(HttpPipeline pipeline) : this(pipeline, null)
+        {
+        }
+
+        private CatalogResource(HttpPipeline pipeline, string? type)
         {
             _pipeline = pipeline;
+            _type = type;
             Publishers = new CatalogPublishersResource(pipeline);
+            Validators = type == null ? new CatalogValidatorsResource(new CatalogResource(pipeline, "validator"), pipeline) : null!;
         }
 
         /// <summary>Издатели каталога.</summary>
         public CatalogPublishersResource Publishers { get; }
 
+        /// <summary>
+        /// Проверки полей в каталоге: официальные (<c>inn</c>, <c>iban</c>, <c>vin</c>…) и опубликованные
+        /// организациями. Их не устанавливают: поле ссылается на проверку по <see cref="CatalogValidatorBrief.Ref"/>;
+        /// <see cref="CatalogValidatorsResource.ForkAsync"/> — своя копия <c>my/&lt;slug&gt;</c> для правки.
+        /// </summary>
+        public CatalogValidatorsResource Validators { get; }
+
         /// <summary>Схемы каталога (<c>GET /v1/catalog</c>).</summary>
         public TypizerPageable<CatalogEntryBrief> ListAsync(CatalogListOptions? options = null, RequestOptions? requestOptions = null,
             CancellationToken cancellationToken = default) =>
             Lists.Create<CatalogEntryBrief>(_pipeline, () => new ApiRequest("listCatalog", Http.Get, "/v1/catalog")
+                    .With("type", _type)
                     .With("q", options?.Query)
                     .With("category", options?.Category?.Value)
                     .With("kind", options?.Kind?.Value)
@@ -52,7 +68,7 @@ namespace Typizer
             ApiRequest request = r.Publisher != null
                 ? new ApiRequest("getCommunityCatalogEntry", Http.Get, "/v1/catalog/" + Url.Segment(r.Publisher, nameof(reference)) + "/" + Url.Segment(r.Slug, nameof(reference)))
                 : new ApiRequest("getCatalogEntry", Http.Get, "/v1/catalog/" + Url.Segment(r.Slug, nameof(reference)));
-            return _pipeline.SendJsonAsync<CatalogEntry>(request.With("version", r.Version), requestOptions, cancellationToken);
+            return _pipeline.SendJsonAsync<CatalogEntry>(request.With("version", r.Version).With("type", _type), requestOptions, cancellationToken);
         }
 
         /// <summary>Все версии схемы, новые первыми (<c>GET /v1/catalog/{entry}/versions</c>, без страниц).</summary>
@@ -66,7 +82,7 @@ namespace Typizer
         {
             string entry = await EntryPathAsync(reference, requestOptions, cancellationToken).ConfigureAwait(false);
             TypizerResponse<ListEnvelope<CatalogVersionBrief>> response = await _pipeline.SendJsonAsync<ListEnvelope<CatalogVersionBrief>>(
-                new ApiRequest("listCatalogVersions", Http.Get, entry + "/versions"), requestOptions, cancellationToken).ConfigureAwait(false);
+                new ApiRequest("listCatalogVersions", Http.Get, entry + "/versions").With("type", _type), requestOptions, cancellationToken).ConfigureAwait(false);
             return new TypizerResponse<IReadOnlyList<CatalogVersionBrief>>(response.Value.Data, response.StatusCode, response.Headers);
         }
 
@@ -103,7 +119,7 @@ namespace Typizer
                 Json.WriteStringIf(w, "version", r.Version);
                 Json.WriteStringIf(w, "name", options?.Name);
             });
-            return await _pipeline.SendJsonAsync<SavedTypizer>(new ApiRequest(operationId, Http.Post, entry + suffix) { Body = Http.JsonBody(body) },
+            return await _pipeline.SendJsonAsync<SavedTypizer>(new ApiRequest(operationId, Http.Post, entry + suffix) { Body = Http.JsonBody(body) }.With("type", _type),
                 requestOptions, cancellationToken).ConfigureAwait(false);
         }
 
@@ -117,7 +133,7 @@ namespace Typizer
             CancellationToken cancellationToken = default)
         {
             string entry = await EntryPathAsync(reference, requestOptions, cancellationToken).ConfigureAwait(false);
-            return await _pipeline.SendJsonAsync<CatalogFavorite>(new ApiRequest("favoriteCatalogEntry", Http.Put, entry + "/favorite"),
+            return await _pipeline.SendJsonAsync<CatalogFavorite>(new ApiRequest("favoriteCatalogEntry", Http.Put, entry + "/favorite").With("type", _type),
                 requestOptions, cancellationToken).ConfigureAwait(false);
         }
 
@@ -131,13 +147,14 @@ namespace Typizer
             CancellationToken cancellationToken = default)
         {
             string entry = await EntryPathAsync(reference, requestOptions, cancellationToken).ConfigureAwait(false);
-            return await _pipeline.SendJsonAsync<CatalogFavorite>(new ApiRequest("unfavoriteCatalogEntry", Http.Delete, entry + "/favorite"),
+            return await _pipeline.SendJsonAsync<CatalogFavorite>(new ApiRequest("unfavoriteCatalogEntry", Http.Delete, entry + "/favorite").With("type", _type),
                 requestOptions, cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>
         /// Жалоба на схему (<c>POST /v1/catalog/{entry}/reports</c>): <paramref name="reason"/> — <c>pii</c>,
-        /// <c>plagiarism</c>, <c>broken</c>, <c>spam</c> или <c>other</c>.
+        /// <c>plagiarism</c>, <c>broken</c>, <c>spam</c>, <c>other</c> или — у проверки — <c>false_positive</c>
+        /// (отклоняет верные значения).
         /// </summary>
         public async Task<CatalogReport> ReportAsync(string reference, string reason, string? details = null,
             RequestOptions? requestOptions = null, CancellationToken cancellationToken = default) =>
@@ -156,7 +173,7 @@ namespace Typizer
                 Json.WriteStringIf(w, "details", details);
                 Json.WriteStringIf(w, "version", r.Version);
             });
-            return await _pipeline.SendJsonAsync<CatalogReport>(new ApiRequest("reportCatalogEntry", Http.Post, entry + "/reports") { Body = Http.JsonBody(body) },
+            return await _pipeline.SendJsonAsync<CatalogReport>(new ApiRequest("reportCatalogEntry", Http.Post, entry + "/reports") { Body = Http.JsonBody(body) }.With("type", _type),
                 requestOptions, cancellationToken).ConfigureAwait(false);
         }
 
@@ -164,14 +181,14 @@ namespace Typizer
         /// <c>/v1/catalog/{entry}</c> for the entry-scoped operations, which take a <c>cat_…</c> id or an
         /// official slug: a community <c>publisher/slug</c> is looked up first (one extra GET).
         /// </summary>
-        private async Task<string> EntryPathAsync(string reference, RequestOptions? requestOptions, CancellationToken cancellationToken)
+        internal async Task<string> EntryPathAsync(string reference, RequestOptions? requestOptions, CancellationToken cancellationToken)
         {
             CatalogRef r = CatalogRef.Parse(reference, null, nameof(reference));
             string entry = r.Slug;
             if (r.Publisher != null)
             {
                 CatalogEntry found = (await _pipeline.SendJsonAsync<CatalogEntry>(new ApiRequest("getCommunityCatalogEntry", Http.Get,
-                        "/v1/catalog/" + Url.Segment(r.Publisher, nameof(reference)) + "/" + Url.Segment(r.Slug, nameof(reference))),
+                        "/v1/catalog/" + Url.Segment(r.Publisher, nameof(reference)) + "/" + Url.Segment(r.Slug, nameof(reference))).With("type", _type),
                     WithoutKey(requestOptions), cancellationToken).ConfigureAwait(false)).Value;
                 entry = found.Id;
             }
@@ -180,6 +197,82 @@ namespace Typizer
 
         private static RequestOptions? WithoutKey(RequestOptions? options) =>
             options == null ? null : new RequestOptions { Timeout = options.Timeout, MaxRetries = options.MaxRetries, ExtraHeaders = options.ExtraHeaders };
+    }
+
+    /// <summary>
+    /// Проверки полей в каталоге: <c>client.Catalog.Validators</c>. Ссылки те же, что у схем: <c>inn</c>,
+    /// <c>inn@1</c>, <c>cat_…</c>, <c>acme/contract-no@1</c>.
+    /// </summary>
+    public sealed class CatalogValidatorsResource
+    {
+        private readonly CatalogResource _catalog;
+        private readonly HttpPipeline _pipeline;
+
+        internal CatalogValidatorsResource(CatalogResource catalog, HttpPipeline pipeline)
+        {
+            _catalog = catalog;
+            _pipeline = pipeline;
+        }
+
+        /// <summary>Проверки каталога (<c>GET /v1/catalog?type=validator</c>).</summary>
+        public TypizerPageable<CatalogEntryBrief> ListAsync(CatalogListOptions? options = null, RequestOptions? requestOptions = null,
+            CancellationToken cancellationToken = default) =>
+            _catalog.ListAsync(options, requestOptions, cancellationToken);
+
+        /// <summary>Проверка с версией: правило, опубликованные примеры и объяснение — в <c>Version.Validator</c>.</summary>
+        public Task<CatalogEntry> GetAsync(string reference, string? version = null, RequestOptions? requestOptions = null,
+            CancellationToken cancellationToken = default) =>
+            _catalog.GetAsync(reference, version, requestOptions, cancellationToken);
+
+        /// <inheritdoc cref="GetAsync"/>
+        public Task<TypizerResponse<CatalogEntry>> GetWithResponseAsync(string reference, string? version = null,
+            RequestOptions? requestOptions = null, CancellationToken cancellationToken = default) =>
+            _catalog.GetWithResponseAsync(reference, version, requestOptions, cancellationToken);
+
+        /// <summary>Все версии проверки, новые первыми.</summary>
+        public Task<IReadOnlyList<CatalogVersionBrief>> ListVersionsAsync(string reference, RequestOptions? requestOptions = null,
+            CancellationToken cancellationToken = default) =>
+            _catalog.ListVersionsAsync(reference, requestOptions, cancellationToken);
+
+        /// <summary>Добавляет проверку в избранное.</summary>
+        public Task<CatalogFavorite> FavoriteAsync(string reference, RequestOptions? requestOptions = null,
+            CancellationToken cancellationToken = default) =>
+            _catalog.FavoriteAsync(reference, requestOptions, cancellationToken);
+
+        /// <summary>Убирает проверку из избранного.</summary>
+        public Task<CatalogFavorite> UnfavoriteAsync(string reference, RequestOptions? requestOptions = null,
+            CancellationToken cancellationToken = default) =>
+            _catalog.UnfavoriteAsync(reference, requestOptions, cancellationToken);
+
+        /// <summary>Жалоба на проверку: <c>false_positive</c> — отклоняет верные значения, или любая причина схем.</summary>
+        public Task<CatalogReport> ReportAsync(string reference, string reason, string? details = null,
+            RequestOptions? requestOptions = null, CancellationToken cancellationToken = default) =>
+            _catalog.ReportAsync(reference, reason, details, requestOptions, cancellationToken);
+
+        /// <summary>
+        /// Своя копия проверки каталога — <c>my/&lt;slug&gt;</c> с её правилом и опубликованными примерами
+        /// (<c>POST /v1/catalog/{entry}/fork?type=validator</c>). Занятый slug — <see cref="TypizerConflictException"/>.
+        /// </summary>
+        public async Task<Validator> ForkAsync(string reference, CatalogForkValidatorOptions? options = null,
+            RequestOptions? requestOptions = null, CancellationToken cancellationToken = default) =>
+            (await ForkWithResponseAsync(reference, options, requestOptions, cancellationToken).ConfigureAwait(false)).Value;
+
+        /// <inheritdoc cref="ForkAsync"/>
+        public async Task<TypizerResponse<Validator>> ForkWithResponseAsync(string reference, CatalogForkValidatorOptions? options = null,
+            RequestOptions? requestOptions = null, CancellationToken cancellationToken = default)
+        {
+            CatalogRef r = CatalogRef.Parse(reference, options?.Version, nameof(reference));
+            string entry = await _catalog.EntryPathAsync(reference, requestOptions, cancellationToken).ConfigureAwait(false);
+            byte[] body = Json.WriteObject(w =>
+            {
+                Json.WriteStringIf(w, "version", r.Version);
+                Json.WriteStringIf(w, "slug", options?.Slug);
+                Json.WriteStringIf(w, "name", options?.Name);
+            });
+            return await _pipeline.SendJsonAsync<Validator>(
+                new ApiRequest("forkCatalogEntry", Http.Post, entry + "/fork") { Body = Http.JsonBody(body) }.With("type", "validator"),
+                requestOptions, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <summary>Издатели каталога: <c>client.Catalog.Publishers</c>.</summary>

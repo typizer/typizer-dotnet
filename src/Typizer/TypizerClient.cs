@@ -21,7 +21,7 @@ namespace Typizer
     public sealed class TypizerClient : IDisposable
     {
         /// <summary>Версия SDK.</summary>
-        public const string Version = "0.2.0";
+        public const string Version = "0.3.0";
 
         private readonly TypizerClientOptions _options;
         private readonly HttpClient _http;
@@ -92,6 +92,7 @@ namespace Typizer
             Catalog = new CatalogResource(_pipeline);
             Batches = new BatchesResource(_pipeline);
             WebhookEndpoints = new WebhookEndpointsResource(_pipeline);
+            Validators = new ValidatorsResource(_pipeline);
         }
 
         /// <summary>Прогоны.</summary>
@@ -106,6 +107,8 @@ namespace Typizer
         public BatchesResource Batches { get; }
         /// <summary>Конечные точки вебхуков и их доставки.</summary>
         public WebhookEndpointsResource WebhookEndpoints { get; }
+        /// <summary>Свои проверки полей (<c>my/…</c>) и проверка значений.</summary>
+        public ValidatorsResource Validators { get; }
 
         /// <summary>Адрес API, к которому обращается клиент.</summary>
         public Uri BaseUrl => _options.BaseUrl!;

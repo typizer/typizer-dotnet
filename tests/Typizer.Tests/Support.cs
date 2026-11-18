@@ -92,8 +92,41 @@ namespace Typizer.Tests
   ""required"": [""invoice_number"", ""total""]
 }";
 
+        /// <summary>SC-36: an own validator by ref, an inline one (passed as is) and an official one.</summary>
+        public const string Checked = @"{
+  ""type"": ""object"",
+  ""properties"": {
+    ""contract_no"": { ""type"": ""string"", ""x-typizer-check"": ""my/contract-no@1"" },
+    ""spec_no"": {
+      ""type"": ""string"",
+      ""x-typizer-check"": {
+        ""kind"": ""rules"",
+        ""applies_to"": ""string"",
+        ""rules"": [{ ""type"": ""length"", ""min"": 5, ""max"": 12 }],
+        ""message"": ""Номер спецификации — от 5 до 12 знаков""
+      }
+    },
+    ""seller"": {
+      ""type"": ""object"",
+      ""properties"": { ""inn"": { ""type"": ""string"", ""x-typizer-check"": ""inn"" } }
+    }
+  }
+}";
+
         public static readonly byte[] Pdf = Encoding.ASCII.GetBytes("%PDF-1.4\n%mock\n");
         public const string SampleUrl = "https://typizer.ru/samples/invoice.pdf";
+    }
+
+    internal static class Specs
+    {
+        /// <summary>A validator spec: «ДГ-ГГГГ/NNNN», like the mock's seeded my/contract-no.</summary>
+        public const string ContractNo = @"{
+  ""kind"": ""rules"",
+  ""applies_to"": ""string"",
+  ""normalize"": { ""strip"": [""spaces""], ""case"": ""upper"" },
+  ""rules"": [{ ""type"": ""pattern"", ""pattern"": ""ДГ-\\d{4}/\\d{4}"" }],
+  ""message"": ""Номер договора не по шаблону ДГ-ГГГГ/NNNN""
+}";
     }
 
     /// <summary>Collects SDK log lines.</summary>
